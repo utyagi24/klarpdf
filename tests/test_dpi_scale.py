@@ -112,7 +112,7 @@ def test_scale_is_zoom_times_the_dpi_factor(win):
     factor = view._logical_dpi / 72.0
     for zoom in (0.5, 1.0, 2.0, 4.0):
         view.set_zoom(zoom)
-        assert view.scale == pytest.approx(zoom * factor)
+        assert view.scene_scale == pytest.approx(zoom * factor)
         assert view._pages[0]["w"] == pytest.approx(LETTER_W * zoom * factor, abs=0.5)
 
 
@@ -157,7 +157,7 @@ def test_device_scale_multiplies_in_the_ratio(win):
     view = win.view
     view.set_zoom(1.0)
     _fake_dpr(view, 2.0)
-    assert view.device_scale == pytest.approx(view.scale * 2.0)
+    assert view.device_scale == pytest.approx(view.scene_scale * 2.0)
 
 
 def test_the_pixmap_is_rendered_at_device_resolution_and_carries_the_ratio(win):
@@ -168,9 +168,9 @@ def test_the_pixmap_is_rendered_at_device_resolution_and_carries_the_ratio(win):
     _fake_dpr(view, 2.0)
     pixmap = view._render_pixmap(0)
     assert pixmap.devicePixelRatio() == pytest.approx(2.0)
-    assert pixmap.width() == pytest.approx(LETTER_W * view.scale * 2.0, abs=2)
+    assert pixmap.width() == pytest.approx(LETTER_W * view.scene_scale * 2.0, abs=2)
     # The layout size Qt derives from it is back at `scale` — which is what leaves geometry alone.
-    assert pixmap.deviceIndependentSize().width() == pytest.approx(LETTER_W * view.scale, abs=2)
+    assert pixmap.deviceIndependentSize().width() == pytest.approx(LETTER_W * view.scene_scale, abs=2)
 
 
 def test_geometry_is_unchanged_by_dpr_but_resolution_is_not(win):
@@ -181,14 +181,14 @@ def test_geometry_is_unchanged_by_dpr_but_resolution_is_not(win):
     _fake_dpr(view, 1.0)
     layout_1x = [(p["x"], p["y"], p["w"], p["h"]) for p in view._pages]
     px_1x = view._render_pixmap(0).width()
-    scale_1x = view.scale
+    scale_1x = view.scene_scale
 
     _fake_dpr(view, 1.75)
     layout_175x = [(p["x"], p["y"], p["w"], p["h"]) for p in view._pages]
     px_175x = view._render_pixmap(0).width()
 
     assert layout_175x == layout_1x           # identical geometry...
-    assert view.scale == scale_1x
+    assert view.scene_scale == scale_1x
     assert px_175x == pytest.approx(px_1x * 1.75, abs=2)   # ...at 1.75x the pixels
 
 
@@ -302,7 +302,7 @@ def test_a_screen_with_no_metrics_falls_back_rather_than_collapsing(win):
     if QGuiApplication.primaryScreen() is None:   # pragma: no cover - offscreen always has one
         pytest.skip("platform reports no primary screen")
     view._refresh_display()
-    assert view.scale > 0
+    assert view.scene_scale > 0
     assert view._logical_dpi > 0
 
 
@@ -319,7 +319,7 @@ def test_a_screen_reporting_zero_dpi_does_not_collapse_the_layout(win):
     view._logical_dpi = 1.0               # force the comparison to see a change
     view._refresh_display()
     assert view._logical_dpi == pytest.approx(96.0)
-    assert view.scale > 0
+    assert view.scene_scale > 0
 
 
 # ---- the mapping stays invertible at the new scale --------------------------------
@@ -342,8 +342,8 @@ def test_a_scene_point_maps_to_the_page_point_under_it(win):
     page = view._pages[0]
     # 200 points in from the page's top-left corner, converted through the layout scale.
     scene_pt = view.mapToScene(0, 0)
-    scene_pt.setX(page["x"] + 200.0 * view.scale)
-    scene_pt.setY(page["y"] + 200.0 * view.scale)
+    scene_pt.setX(page["x"] + 200.0 * view.scene_scale)
+    scene_pt.setY(page["y"] + 200.0 * view.scene_scale)
     index, local = view.page_and_local_at(scene_pt)
     assert index == 0
     assert local.x() == pytest.approx(200.0, abs=0.01)
@@ -354,6 +354,6 @@ def test_the_view_survives_construction_before_it_has_a_screen(qapp, letter):
     """A `PdfView` is built before it is shown, so `_refresh_display` runs against whatever
     `screen()` returns then. It must produce a usable scale either way."""
     view = PdfView(VirtualDocument.from_path(letter))
-    assert view.scale > 0
+    assert view.scene_scale > 0
     assert view.device_scale > 0
-    assert view._pages[0]["w"] == pytest.approx(LETTER_W * view.scale, abs=0.5)
+    assert view._pages[0]["w"] == pytest.approx(LETTER_W * view.scene_scale, abs=0.5)

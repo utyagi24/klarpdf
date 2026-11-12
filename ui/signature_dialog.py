@@ -166,7 +166,7 @@ class SignatureDialog(QDialog):
     def _browse(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Choose a signature or image", "", IMAGE_FILTER)
         if path:
-            self.recent.setCurrentItem(None)
+            self.recent.setCurrentItem(None)  # type: ignore[call-overload]  # Qt takes None; PySide6's types leave it out
             self.set_path(path)
 
     def set_path(self, path: str) -> None:

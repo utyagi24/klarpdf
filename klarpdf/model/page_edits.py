@@ -25,7 +25,7 @@ from __future__ import annotations
 import re
 from collections.abc import Collection, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 import pymupdf as fitz
 
@@ -469,6 +469,9 @@ if TYPE_CHECKING:  # named in annotations only: these modules import this one
     #: Every kind of mark a page can carry.
     Mark = AdditiveMark | Redaction | Stamp | ImageStamp | NewField
 
+#: One kind of mark, the same on the way out as on the way in: a mark moved is the same kind of mark.
+_M = TypeVar("_M", bound="Mark")
+
 
 def is_additive_mark(mark: object) -> bool:
     """Is ``mark`` one of the kinds a save can write by appending? See :data:`ADDITIVE_MARK_TYPES`.
@@ -479,7 +482,7 @@ def is_additive_mark(mark: object) -> bool:
     return isinstance(mark, ADDITIVE_MARK_TYPES)
 
 
-def translate_mark(mark: Mark, dx: float, dy: float) -> Mark:
+def translate_mark(mark: _M, dx: float, dy: float) -> _M:
     """The same descriptor moved by ``(dx, dy)`` — the one move primitive for every free-placed
     geometry (M58 drag-move, M59 paste-with-offset). Frozen value objects in, new ones out."""
     from dataclasses import replace

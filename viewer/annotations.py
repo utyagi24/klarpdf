@@ -23,7 +23,7 @@ from collections import OrderedDict
 from dataclasses import replace
 
 import pymupdf as fitz
-from PySide6.QtCore import QPoint, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -35,6 +35,7 @@ from PySide6.QtGui import (
     QPixmap,
 )
 from PySide6.QtWidgets import (
+    QAbstractGraphicsShapeItem,
     QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsLineItem,
@@ -45,7 +46,8 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
 )
 
-from klarpdf.model.content_marks import CONTENT_MARK_TYPES, render_mark_document
+from klarpdf.model.content_marks import CONTENT_MARK_TYPES, ContentMark, render_mark_document
+from klarpdf.model.foreign_annots import ForeignAnnot
 from klarpdf.model.form_fields import NewField
 from klarpdf.model.page_edits import (
     TEXTBOX_PITCH,
@@ -86,7 +88,7 @@ _HIT_PAD = 3.0                    # grab slack around thin drawn marks (page poi
 _PAGE_COVER = 0.98
 
 # The on-page note glyph (M90.2), in **logical pixels** rather than page points — deliberately.
-# Zoom rebuilds the scene rather than scaling the view (``PdfView.scale``), so a scene-unit size is
+# Zoom rebuilds the scene rather than scaling the view (``QGraphicsView.scale()``), so a scene-unit size is
 # a constant on-screen size: the badge stays legible at Fit Page on a 300-page report and never
 # balloons at 400%. Page-point sizing would have failed the "legible at low zoom" criterion by
 # construction.
@@ -318,7 +320,7 @@ class AnnotationOverlay:
         # Arrow-key nudge (M78.2): on_nudge(page, [(old, new), …], auto_repeat, text) — a mergeable
         # command, so a held key coalesces to one undo step and each tap stays separate.
         self._on_nudge = on_nudge
-        self._items: list[QGraphicsRectItem] = []
+        self._items: list[QGraphicsItem] = []
         # Inline editor (placing a new box, or re-editing an existing one) + its formatting bar.
         self._editor: _TextBoxEditor | None = None
         self._editor_page = 0
@@ -336,7 +338,7 @@ class AnnotationOverlay:
         # Live redaction rubber-band: a scene rect item dragged out over a page.
         self._redact_band: QGraphicsRectItem | None = None
         self._redact_page = 0
-        self._redact_anchor = None          # the scene point where the drag started
+        self._redact_anchor: QPointF | None = None   # the scene point where the drag started
         # The shared, sticky markup / draw style (M59.5): colour · width · fill, stamped onto the
         # next drawn mark. Edited via the toolbar's Line Styling / Colors / Opacity buttons (M78.6,
         # split from the former single style button) — the last-used style carries forward, like the
@@ -345,7 +347,7 @@ class AnnotationOverlay:
         # The content mark (M62) a composed stamp / signature dialog has armed, waiting for the
         # placement drag to give it a rect. Cleared once placed, so a second drag needs a second
         # trip through the dialog — the same one-shot contract as every other armed tool.
-        self.pending_content_mark = None
+        self.pending_content_mark: ContentMark | None = None
         # Pages whose content marks are currently painted. A content mark is the one overlay that is
         # *rasterised* rather than built from cheap Qt items, so it is painted lazily by viewport
         # band (see _paint_visible_content); this tracks which pages have already been done.
@@ -355,17 +357,17 @@ class AnnotationOverlay:
         # with the stale image of its previous self — the cache needs no explicit invalidation.
         self._mark_pixmaps: OrderedDict[tuple, QPixmap] = OrderedDict()
         # The form field (M69) a properties dialog has composed, waiting for its box.
-        self.pending_field = None
+        self.pending_field: NewField | None = None
         # The foreign annotation being dragged (M67), as (page_index, ForeignAnnot). It
         # reuses the move ghost/delta machinery but is not an editable object, so it never
         # enters `_selection`.
-        self._foreign_move = None
+        self._foreign_move: tuple[int, ForeignAnnot] | None = None
         # In-progress draw gesture (M58): the armed draw tool, its page, the anchor + live end
         # point (page points), captured pen points, and the preview path item.
-        self._draw_tool = None
+        self._draw_tool: ArmedTool | None = None
         self._draw_page = 0
-        self._draw_anchor: tuple | None = None
-        self._draw_end: tuple | None = None
+        self._draw_anchor: tuple[float, float] | None = None
+        self._draw_end: tuple[float, float] | None = None
         self._draw_points: list = []
         self._draw_item: QGraphicsPathItem | None = None
         # A line's live-preview arrowheads, drawn solid on a separate item so a dashed shaft doesn't
@@ -379,7 +381,7 @@ class AnnotationOverlay:
         # Live object move (M58 single → M59.6 group): the page, the grab anchor (unrotated page
         # coords), the grabbed mark, one entry per moved mark, and the shared group-clamped delta.
         self._move_page = 0
-        self._move_anchor_local = None      # grab point in unrotated page coords (rotation-safe)
+        self._move_anchor_local: QPointF | None = None  # grab point, unrotated page coords (rotation-safe)
         self._move_grabbed = None           # the mark actually under the press (for a no-drag click)
         self._move_items: list = []         # [(mark, (x0, y0, x1, y1), ghost), …]
         self._move_delta: tuple = (0.0, 0.0)
@@ -387,7 +389,7 @@ class AnnotationOverlay:
         # extends the current group.
         self._marquee_item: QGraphicsRectItem | None = None
         self._marquee_page = 0
-        self._marquee_anchor = None
+        self._marquee_anchor: QPointF | None = None
         self._marquee_add = False
         # Resize (M59.7): the handles around the selection, plus the in-flight drag — which handle,
         # the grab anchor, the marks being resized, the original + live bounds, and a ghost preview.
@@ -395,13 +397,13 @@ class AnnotationOverlay:
         self._handles = ResizeHandles(view)
         self._resize_handle: str | None = None
         self._resize_page = 0
-        self._resize_anchor_local = None
+        self._resize_anchor_local: QPointF | None = None
         self._resize_marks: list = []
         self._resize_orig: tuple = (0.0, 0.0, 0.0, 0.0)
         self._resize_rect: tuple = (0.0, 0.0, 0.0, 0.0)
-        self._resize_line = None            # (Line, moved_end) while dragging a line endpoint
-        self._resize_textbox = None         # the TextBox while dragging its width handle (M78.3)
-        self._resize_ghost = None
+        self._resize_line: tuple[Line, str] | None = None  # (Line, moved_end) while dragging a line endpoint
+        self._resize_textbox: TextBox | None = None  # the TextBox while dragging its width handle (M78.3)
+        self._resize_ghost: QGraphicsRectItem | QGraphicsLineItem | None = None
         # The note popup (M90.1). Owned here so it rides the same zoom/scroll reposition hook as
         # the text-box editor — a note is a *field of an HUS mark*, so its editor belongs with the
         # marks rather than as a fourth overlay on the view.
@@ -686,6 +688,7 @@ class AnnotationOverlay:
             pen = QPen(Qt.PenStyle.NoPen)
         else:
             pen = self._drawn_pen(annot.color, annot.width, getattr(annot, "dashed", False))
+        item: QAbstractGraphicsShapeItem
         if isinstance(annot, Shape):
             x0, y0, x1, y1 = annot.rect
             item_cls = QGraphicsRectItem if annot.kind == "rect" else QGraphicsEllipseItem
@@ -1094,7 +1097,8 @@ class AnnotationOverlay:
         self._editing = (page_index, box)
         self._open_editor(page_index, box.rect, text=box.text,
                           style=TextBoxStyle.from_textbox(box), auto_width=box.auto_width)
-        self._editor.selectAll()
+        if self._editor is not None:
+            self._editor.selectAll()
         return True
 
     def _open_editor(self, page_index: int, rect: tuple, text: str,
@@ -1145,7 +1149,7 @@ class AnnotationOverlay:
         editor = self._editor
         if editor is None:
             return
-        z = self._view.scale   # scene units per point, not the bare zoom (M88.1)
+        z = self._view.scene_scale   # scene units per point, not the bare zoom (M88.1)
         font = qt_font(self._style.fontname, self._editor_fontsize * z)  # family + zoomed size
         editor.setFont(font)
         pw, ph = self._view._unrotated_size(self._editor_page)
@@ -1447,9 +1451,9 @@ class AnnotationOverlay:
         on-screen slack (converted to page points via the view scale), so the grab band feels the
         same ~6 px at any zoom and a thicker stroke is correspondingly easier to hit.
 
-        Divides by :attr:`~viewer.pdf_view.PdfView.scale`, not ``zoom`` — the slack is 6 *scene
+        Divides by :attr:`~viewer.pdf_view.PdfView.scene_scale`, not ``zoom`` — the slack is 6 *scene
         units*, and after M88.1 those differ by the 1.333 DPI factor."""
-        return getattr(mark, "width", 2.0) / 2.0 + 6.0 / max(self._view.scale, 0.05)
+        return getattr(mark, "width", 2.0) / 2.0 + 6.0 / max(self._view.scene_scale, 0.05)
 
     def _drawn_hit(self, mark, lx: float, ly: float) -> bool:
         """Whether the unrotated page point ``(lx, ly)`` hits ``mark``. Pen/line → near the drawn
@@ -1693,11 +1697,12 @@ class AnnotationOverlay:
         return True
 
     def update_move(self, scene_pt) -> None:
-        if not self._move_items:
+        anchor = self._move_anchor_local
+        if not self._move_items or anchor is None:
             return
         local = self._view.local_point_on_page(self._move_page, scene_pt)
-        dx = local.x() - self._move_anchor_local.x()
-        dy = local.y() - self._move_anchor_local.y()
+        dx = local.x() - anchor.x()
+        dy = local.y() - anchor.y()
         # Clamp the whole group by its union bounds — one shared delta keeps the group's shape, and
         # no member leaves the page.
         ux0 = min(b[0] for _m, b, _g in self._move_items)
@@ -1798,7 +1803,7 @@ class AnnotationOverlay:
         return True
 
     def update_marquee(self, scene_pt) -> None:
-        if self._marquee_item is not None:
+        if self._marquee_item is not None and self._marquee_anchor is not None:
             self._marquee_item.setRect(QRectF(self._marquee_anchor, scene_pt).normalized())
 
     def finish_marquee(self) -> None:
@@ -1839,6 +1844,7 @@ class AnnotationOverlay:
         self._resize_marks = marks
         self._resize_line = None
         self._resize_textbox = None
+        ghost: QGraphicsRectItem | QGraphicsLineItem
         if len(marks) == 1 and isinstance(marks[0], TextBox):
             box = marks[0]
             self._resize_textbox = box
@@ -1871,7 +1877,8 @@ class AnnotationOverlay:
     def update_resize(self, scene_pt, modifiers=None) -> None:
         """Track the drag: Shift keeps a corner drag proportional. The result is clamped to the
         page, so a resize never pushes a mark off it."""
-        if self._resize_handle is None:
+        anchor, ghost = self._resize_anchor_local, self._resize_ghost
+        if self._resize_handle is None or anchor is None:
             return
         if modifiers is None:
             modifiers = QGuiApplication.keyboardModifiers()
@@ -1886,23 +1893,26 @@ class AnnotationOverlay:
             self._resize_rect = self._reflow_textbox_rect(
                 self._resize_textbox, x - self._resize_textbox.rect[0], page_index)
             x0, y0, x1, y1 = self._resize_rect
-            self._resize_ghost.setRect(QRectF(x0, y0, x1 - x0, y1 - y0))
+            if isinstance(ghost, QGraphicsRectItem):
+                ghost.setRect(QRectF(x0, y0, x1 - x0, y1 - y0))
             return
         if self._resize_line is not None:
             line, which = self._resize_line
             self._resize_rect = ((x, y, line.end[0], line.end[1]) if which == "p0"
                                  else (line.start[0], line.start[1], x, y))
-            self._resize_ghost.setLine(*self._resize_rect)
+            if isinstance(ghost, QGraphicsLineItem):
+                ghost.setLine(*self._resize_rect)
             return
-        dx = x - self._resize_anchor_local.x()
-        dy = y - self._resize_anchor_local.y()
+        dx = x - anchor.x()
+        dy = y - anchor.y()
         rect = resized_rect(self._resize_orig, self._resize_handle, dx, dy,
                             keep_aspect=bool(modifiers & Qt.KeyboardModifier.ShiftModifier))
         cx0, cy0 = min(max(0.0, rect[0]), pw), min(max(0.0, rect[1]), ph)
         cx1, cy1 = min(max(0.0, rect[2]), pw), min(max(0.0, rect[3]), ph)
         self._resize_rect = (min(cx0, cx1), min(cy0, cy1), max(cx0, cx1), max(cy0, cy1))
         x0, y0, x1, y1 = self._resize_rect
-        self._resize_ghost.setRect(QRectF(x0, y0, x1 - x0, y1 - y0))
+        if isinstance(ghost, QGraphicsRectItem):
+            ghost.setRect(QRectF(x0, y0, x1 - x0, y1 - y0))
 
     def finish_resize(self) -> None:
         """Commit the resize (undoable; one macro for a group). Every member is scaled by the same
@@ -1929,11 +1939,11 @@ class AnnotationOverlay:
             return
         if line_state is not None:
             line, _which = line_state
-            new = replace(line, start=(rect[0], rect[1]), end=(rect[2], rect[3]))
-            if new == line:
+            line_after = replace(line, start=(rect[0], rect[1]), end=(rect[2], rect[3]))
+            if line_after == line:
                 return self._refresh_handles()
-            self._replace(page_index, line, new, text="Resize line")
-            self._set_selection([(page_index, new)])
+            self._replace(page_index, line, line_after, text="Resize line")
+            self._set_selection([(page_index, line_after)])
             return
         ow, oh = orig[2] - orig[0], orig[3] - orig[1]
         if ow <= 0 or oh <= 0:
@@ -2018,7 +2028,7 @@ class AnnotationOverlay:
 
     def update_redaction(self, scene_pt) -> None:
         """Resize the live rubber-band as the drag moves."""
-        if self._redact_band is not None:
+        if self._redact_band is not None and self._redact_anchor is not None:
             self._redact_band.setRect(QRectF(self._redact_anchor, scene_pt).normalized())
 
     def finish_redaction(self) -> None:
@@ -2126,6 +2136,8 @@ class AnnotationOverlay:
 
     def _constrained_end(self, x: float, y: float) -> tuple:
         """The Shift constraint: lines/arrows snap to 45° steps; rect/ellipse drags square up."""
+        if self._draw_anchor is None:  # no gesture in progress: nothing to constrain against
+            return (x, y)
         ax, ay = self._draw_anchor
         dx, dy = x - ax, y - ay
         if self._draw_tool is ArmedTool.LINE:
@@ -2141,18 +2153,21 @@ class AnnotationOverlay:
     def _gesture_path(self) -> QPainterPath:
         """The live preview path in page points — the same geometry the commit will bake."""
         tool = self._draw_tool
+        anchor, end = self._draw_anchor, self._draw_end
         path = QPainterPath()
         if tool is ArmedTool.PEN:
             path.moveTo(*self._draw_points[0])
             for point in self._draw_points[1:]:
                 path.lineTo(*point)
+        elif anchor is None or end is None:
+            pass                            # no gesture in progress: an empty path
         elif tool is ArmedTool.LINE:
             # Just the shaft — the arrowheads ride the separate always-solid item (M74 WYSIWYG),
             # so a dashed line's shaft dashes but its ending stays solid, exactly as it bakes.
-            path = _line_shaft_path(self._draw_anchor, self._draw_end)
+            path = _line_shaft_path(anchor, end)
         else:
-            x0, y0 = self._draw_anchor
-            x1, y1 = self._draw_end
+            x0, y0 = anchor
+            x1, y1 = end
             rect = QRectF(min(x0, x1), min(y0, y1), abs(x1 - x0), abs(y1 - y0))
             if tool is ArmedTool.ELLIPSE:
                 path.addEllipse(rect)
@@ -2164,6 +2179,8 @@ class AnnotationOverlay:
         """The live line's arrowheads (M74) — drawn on the separate always-solid item, so they
         never dash with the shaft. The ends come from the sticky style, like colour and width."""
         start_head, end_head = self._markup_style.line_ends
+        if self._draw_anchor is None or self._draw_end is None:  # no gesture in progress
+            return QPainterPath()
         return _arrowheads_path(self._draw_anchor, self._draw_end, start_head, end_head,
                                 self._markup_style.width)
 
@@ -2228,6 +2245,8 @@ class AnnotationOverlay:
         anchor, end, points = self._draw_anchor, self._draw_end, self._draw_points
         self._draw_tool = self._draw_anchor = self._draw_end = None
         self._draw_points = []
+        if tool is None or anchor is None or end is None:  # set together with the item, in begin_draw
+            return
         # Stamp the sticky colour · width (+ shape fill) onto the committed mark (M59.5).
         style = self._markup_style
         if tool is ArmedTool.PEN:

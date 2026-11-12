@@ -262,7 +262,7 @@ def test_choosing_the_value_the_button_already_shows_still_applies_it(win):
     """A group's members can differ from what the buttons show. Picking the colour the Colors
     button already rings is still a choice, and it recolours every member to it."""
     _two_styled_shapes(win)                                  # red and green
-    assert win._colors_button.style().color == pytest.approx(_RED)   # the default rings red
+    assert win._colors_button.chosen_style().color == pytest.approx(_RED)   # the default rings red
     win.view.annotations.select_in_rect(0, (90, 90, 270, 150))
     win._colors_button._border_row.buttons["Red"].click()
     left, right = _by_left_edge(win)

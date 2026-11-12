@@ -52,7 +52,7 @@ class TextSelection:
         self._cursor: tuple[int, int] | None = None
         self.active = False
         self._press = None              # scene point where the press started
-        self._pending_anchor = None     # nearest word at press, promoted to anchor once dragging
+        self._pending_anchor: tuple[int, int] | None = None  # nearest word at press, promoted once dragging
         self._moved = False             # has the drag passed the threshold yet?
         self._band: tuple[int, int] | None = None   # page range the painted items cover (M89.6)
 

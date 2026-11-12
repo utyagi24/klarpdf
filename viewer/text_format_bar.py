@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QActionGroup, QColor, QFont
+from PySide6.QtGui import QAction, QActionGroup, QColor, QFont
 from PySide6.QtWidgets import (
     QColorDialog,
     QHBoxLayout,
@@ -116,7 +116,7 @@ class TextFormatBar(QWidget):
         self._family_btn = self._menu_button("Helvetica", "Font family")
         self._family_menu = QMenu(self._family_btn)
         fam_group = QActionGroup(self._family_menu)
-        self._family_actions: dict[str, object] = {}
+        self._family_actions: dict[str, QAction] = {}
         for key, _family, _hint, label in _FAMILIES:
             act = self._family_menu.addAction(label)
             act.setCheckable(True)
@@ -129,7 +129,7 @@ class TextFormatBar(QWidget):
         self._size_btn = self._menu_button("11", "Font size")
         self._size_menu = QMenu(self._size_btn)
         size_group = QActionGroup(self._size_menu)
-        self._size_actions: dict[int, object] = {}
+        self._size_actions: dict[int, QAction] = {}
         for pt in _SIZES:
             act = self._size_menu.addAction(str(pt))
             act.setCheckable(True)
@@ -180,7 +180,7 @@ class TextFormatBar(QWidget):
 
     # ---- state in / out ---------------------------------------------------------
 
-    def style(self) -> TextBoxStyle:
+    def text_style(self) -> TextBoxStyle:
         return self._style
 
     def set_style(self, style: TextBoxStyle) -> None:

@@ -175,7 +175,7 @@ def test_highlight_has_its_own_colour(win):
 def test_button_seeds_the_overlay_and_tracks_changes(win):
     """The overlay is the single source of truth; the button seeds it on start and pushes every
     later edit into it."""
-    assert win.view.annotations.current_markup_style == win._colors_button.style()
+    assert win.view.annotations.current_markup_style == win._colors_button.chosen_style()
     win._colors_button._set_color((0.13, 0.60, 0.20))   # what a preset click calls
     assert win.view.annotations.current_markup_style.color == pytest.approx((0.13, 0.60, 0.20))
     win._line_style_button._set_width(4.0)
@@ -280,7 +280,7 @@ def test_partial_edit_keeps_the_objects_other_attributes(win):
 
 def test_selecting_a_mark_loads_its_style_into_the_picker(win):
     _add_and_select(win, Line((100.0, 200.0), (220.0, 240.0), color=(0.13, 0.60, 0.20), width=4.0))
-    loaded = win._colors_button.style()
+    loaded = win._colors_button.chosen_style()
     assert loaded.color == pytest.approx((0.13, 0.60, 0.20))
     assert loaded.width == 4.0
 
@@ -294,17 +294,17 @@ def test_the_three_buttons_drive_one_synced_style(win):
     style = win.view.annotations.current_markup_style
     assert style.width == 4.0 and style.color == pytest.approx((0.0, 0.0, 1.0))
     for button in (win._line_style_button, win._colors_button, win._opacity_button):
-        assert button.style().width == 4.0
-        assert button.style().color == pytest.approx((0.0, 0.0, 1.0))
+        assert button.chosen_style().width == 4.0
+        assert button.chosen_style().color == pytest.approx((0.0, 0.0, 1.0))
 
 
 def test_object_select_loads_the_style_into_all_three_buttons(win):
     _add_and_select(win, Shape("rect", (100.0, 100.0, 180.0, 150.0),
                                color=(0.13, 0.60, 0.20), width=4.0, opacity=0.5))
     for button in (win._line_style_button, win._colors_button, win._opacity_button):
-        assert button.style().color == pytest.approx((0.13, 0.60, 0.20))
-        assert button.style().width == 4.0
-        assert button.style().opacity == pytest.approx(0.5)
+        assert button.chosen_style().color == pytest.approx((0.13, 0.60, 0.20))
+        assert button.chosen_style().width == 4.0
+        assert button.chosen_style().opacity == pytest.approx(0.5)
 
 
 def test_restyle_keeps_the_object_selected_for_the_next_tweak(win):

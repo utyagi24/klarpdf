@@ -41,7 +41,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QActionGroup, QColor, QGuiApplication, QIcon, QPainter, QPalette, QPen, QPixmap
+from PySide6.QtGui import QAction, QActionGroup, QColor, QGuiApplication, QIcon, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (
     QColorDialog,
     QHBoxLayout,
@@ -201,7 +201,7 @@ def dot_icon(color: tuple[float, float, float] | None, ring: bool = False,
     if ring:
         app = QGuiApplication.instance()
         ring_color = (app.palette().color(QPalette.ColorRole.WindowText)
-                      if app is not None else QColor("#2b2b2b"))
+                      if isinstance(app, QGuiApplication) else QColor("#2b2b2b"))
         painter.setPen(QPen(ring_color, 1.4))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(QRectF(0.8, 0.8, size - 1.6, size - 1.6))
@@ -211,7 +211,7 @@ def dot_icon(color: tuple[float, float, float] | None, ring: bool = False,
 
 def _button_text_color() -> QColor:
     app = QGuiApplication.instance()
-    if app is None:
+    if not isinstance(app, QGuiApplication):
         return QColor("#2b2b2b")
     return app.palette().color(QPalette.ColorRole.ButtonText)
 
@@ -364,7 +364,7 @@ class _StyleButton(QToolButton):
         self.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.setIconSize(QSize(16, 16))
 
-    def style(self) -> MarkupStyle:
+    def chosen_style(self) -> MarkupStyle:
         return self._style
 
     def set_style(self, style: MarkupStyle) -> None:
@@ -427,7 +427,7 @@ class LineStylingButton(_StyleButton):
         self.setToolTip("Line styling — thickness, dash & arrowheads (pen & shapes)")
         menu = QMenu(self)
         self._width_group = QActionGroup(menu)
-        self._width_actions: dict[float, object] = {}
+        self._width_actions: dict[float, QAction] = {}
         for label, pt in _WIDTHS:
             act = menu.addAction(label)
             act.setCheckable(True)
@@ -436,7 +436,7 @@ class LineStylingButton(_StyleButton):
             self._width_actions[pt] = act
         menu.addSeparator()
         self._dash_group = QActionGroup(menu)
-        self._dash_actions: dict[bool, object] = {}
+        self._dash_actions: dict[bool, QAction] = {}
         for label, is_dashed in _LINE_STYLES:
             act = menu.addAction(label)
             act.setCheckable(True)
@@ -447,7 +447,7 @@ class LineStylingButton(_StyleButton):
         # Arrowheads (M74): line ends as style, Preview's model. Lines only.
         self._ends_menu = menu.addMenu("Arrowheads")
         self._ends_group = QActionGroup(self._ends_menu)
-        self._ends_actions: dict[tuple, object] = {}
+        self._ends_actions: dict[tuple, QAction] = {}
         for label, ends in _LINE_ENDS:
             act = self._ends_menu.addAction(label)
             act.setCheckable(True)

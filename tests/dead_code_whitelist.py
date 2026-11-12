@@ -43,6 +43,9 @@ KEEP: dict[tuple[str, str], str] = {
     ("ui/icons.py", "DOC_ICON"):
         "names the .pdf document icon's SVG; the app never draws it, but tests/test_icons.py checks "
         "through it the file packaging/app/make_icon.py builds klarpdf-doc.ico from",
+    ("viewer/text_format_bar.py", "text_style"):
+        "the tests read the style the format bar holds through it. It was `style()` until M173, a name"
+        " Qt widgets also have, which hid from this check that only tests call it",
     ("viewer/annotations.py", "current_style"):
         "the tests read the text-box style the next new box will carry through it",
     ("viewer/annotations.py", "selected_object"):

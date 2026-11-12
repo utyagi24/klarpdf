@@ -90,7 +90,7 @@ PLACE_CLICK = "Stamp (click to place)"
 PLACE_PAGE = "Watermark (whole page)"
 
 # Style defaults for a stamp: opaque, framed, upright, stamp red, at a legible size.
-_STAMP_DEFAULTS = {"color": (0.80, 0.10, 0.10), "opacity": 1.0, "angle": 0.0, "frame": True,
+_STAMP_DEFAULTS: dict = {"color": (0.80, 0.10, 0.10), "opacity": 1.0, "angle": 0.0, "frame": True,
                    "fontsize": _DEFAULT_POINT_SIZE}
 
 # Said in the dialog, not just the docs: a content mark is a point of no return at Save (PLAN.md
@@ -423,7 +423,8 @@ class MarkDialog(QDialog):
         color = state.get("color")
         if isinstance(color, (list, tuple)) and len(color) == 3:
             try:
-                self.color.set_color(tuple(float(c) for c in color))
+                red, green, blue = (float(c) for c in color)
+                self.color.set_color((red, green, blue))
             except (TypeError, ValueError):
                 pass
         for key, setter in (

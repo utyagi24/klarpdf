@@ -54,7 +54,7 @@ def svg_path(name: str) -> Path:
 def _glyph_color() -> QColor:
     """Tint colour for the monochrome action icons: the theme's button-text colour."""
     app = QGuiApplication.instance()
-    if app is None:
+    if not isinstance(app, QGuiApplication):  # none yet, or one with no palette
         return QColor("#2b2b2b")
     return app.palette().color(QPalette.ColorGroup.Active, QPalette.ColorRole.ButtonText)
 

@@ -196,5 +196,5 @@ class Sizer:
             return 2
         a = self.fixed()
         b = self.per_pixel(a)
-        pixels = (self.budget - a) / b if a < self.budget / 2 else a / b
-        return max(1, int(pixels / (TILE * TILE)))
+        wanted = (self.budget - a) / b if a < self.budget / 2 else a / b
+        return max(1, int(wanted / (TILE * TILE)))

@@ -143,9 +143,9 @@ def test_the_opacity_slider_shows_and_accepts_an_exact_percentage(win):
 
     button = win._opacity_button
     button._slider.setValue(63)                           # user drags to 63%
-    assert button.style().opacity == pytest.approx(0.63)  # any exact %, not just the old presets
+    assert button.chosen_style().opacity == pytest.approx(0.63)  # any exact %, not just the old presets
     assert "63%" in button._opacity_label.text()          # the slider shows the exact value
-    button.set_style(replace(button.style(), opacity=0.4))
+    button.set_style(replace(button.chosen_style(), opacity=0.4))
     assert button._slider.value() == 40                   # loading a style moves the slider back
 
 
@@ -153,7 +153,7 @@ def test_selecting_a_translucent_mark_loads_its_opacity(win):
     win.vdoc.add_annotation(0, Shape("rect", (100.0, 100.0, 200.0, 160.0), opacity=0.5))
     win.view.reload()
     win.view.annotations.select_object(0, _only(win, Shape))
-    assert win._opacity_button.style().opacity == 0.5
+    assert win._opacity_button.chosen_style().opacity == 0.5
 
 
 # ---- the redaction preview layer -------------------------------------------

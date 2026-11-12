@@ -16,7 +16,6 @@ module's docstring records why the obvious ``page.get_textbox`` is not used.
 
 from __future__ import annotations
 
-import pymupdf as fitz
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
@@ -32,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from klarpdf.model.page_text import PageText
+from klarpdf.model.pymupdf_constants import PDF_ANNOT_FREE_TEXT
 
 _HIT = QColor(255, 235, 59, 90)        # all matches: translucent yellow
 _CURRENT = QColor(255, 138, 0, 150)    # current match: stronger orange
@@ -48,7 +48,7 @@ def _overlay_text_rects(page) -> list:
     a typed text box or a filled field is never a search hit. Markup annotations (highlight /
     underline / strikeout) are deliberately **absent** — they add no text of their own and sit *over*
     real content, so a hit under one is a genuine content hit that must survive."""
-    rects = [a.rect for a in (page.annots() or []) if a.type[0] == fitz.PDF_ANNOT_FREE_TEXT]
+    rects = [a.rect for a in (page.annots() or []) if a.type[0] == PDF_ANNOT_FREE_TEXT]
     rects.extend(w.rect for w in (page.widgets() or []))
     return rects
 
@@ -252,7 +252,7 @@ class SearchResultsPanel(QListWidget):
         a black box. A row is a match; redaction works in rectangles, so the rows are flattened.
         """
         hits = self._view.search.hits()
-        chosen = []
+        chosen: list[tuple[int, tuple]] = []
         for row in range(self.count()):
             item = self.item(row)
             if item.checkState() != Qt.CheckState.Checked:
@@ -299,7 +299,7 @@ class FindBar(QWidget):
     def __init__(self, view, parent=None) -> None:
         super().__init__(parent)
         self._view = view
-        self.results_panel = None
+        self.results_panel: SearchResultsPanel | None = None
         self._edit = QLineEdit()
         self._edit.setPlaceholderText("Find in document")
         self._label = QLabel("")

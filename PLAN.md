@@ -12158,6 +12158,118 @@ question, with the counts by kind.
   them the same constants, and the app has 885 functions to the wheel's 499. `check_untyped_defs`
   will add to that count, because the app's rect arithmetic is then checked.
 
+### M173 — types for the app (M173.1 built 2026-11-11)
+
+**The decision (owner, 2026-11-11): go, both parts.** M172 left M173 as a go or no-go, to be
+decided once M172's cost was known. The owner chose both parts:
+
+* **M173.1**, this entry: mypy checks the app's code too, and every error is cleared.
+* **M173.2**: every function in the app states its types, as `klarpdf/` does since M172.2.
+
+The first recommendation was M173.1 alone, and the owner asked why. The case for both parts was
+this. A value with no stated type is unknown to mypy, and nothing done with it is checked. In the
+app, 273 functions have at least one such value. Without the rule, new code can be written untyped
+and still pass, so the check weakens and nothing reports it. And in `klarpdf/` it was the second
+part that found something (`restyle_mark`, §M172). The cost is 297 functions, three times
+`klarpdf/`'s 97. That is a reason it costs more, not a reason against it.
+
+Two more answers from the same session:
+
+* **mypy checks the code as both platforms.** A few lines of the app run on Windows only, and a
+  few on Linux only. mypy reads `if sys.platform == "win32":` as true or false and skips the other
+  branch, so each platform needs its own run.
+* **The bare `tuple`, `dict` and `list` question waits until after M173.1** (`PROGRESS.md`
+  §Open follow-ups). The app is the main user of a page's marks list, so its count is measured
+  first.
+
+**Surfaces:** app, and one line of the core. The core change is in type information only:
+`translate_mark` now says it returns the same kind of mark it is given. Nothing a user sees changes.
+
+"The app" here is the code outside `klarpdf/`: `app.py`, `main_window.py`, `edit_commands.py`,
+`launcher.py`, `platform_integration.py`, and the `viewer/`, `organize/`, `ui/` and `store/` folders.
+43 files, about 16,600 lines. It is everything on screen, and it calls the engine in `klarpdf/`.
+
+**What M173.1 adds.**
+
+* `[tool.mypy] files` lists the app beside `klarpdf/`. A temporary `[[tool.mypy.overrides]]` block
+  lets the app's functions leave out their types until M173.2, which deletes it.
+* `invoke typecheck` runs mypy twice, as Windows and as Linux, each with its own cache. mypy throws
+  its cache away when the platform changes, so one shared cache would make every run a cold one.
+  `invoke lint` runs Ruff and then this. The platforms are written once, in `tasks.py`.
+* The `typecheck` CI job installs the dev lock and runs `invoke typecheck`. M172's job installed
+  the bridge's lock, which has no Qt, and mypy needs Qt's type information to read the app. For
+  `klarpdf/` the answer is the same, because the two locks pin every package they share to one
+  version (M159).
+* `tests/test_lint_config.py` fails if a shipped file is missing from `files`. The shipped files are
+  the ones the dead-code check reads.
+
+**What mypy reported.** 136 errors as Windows, in 20 of the 43 files, and 137 as Linux. The one
+extra was `ctypes.windll`, which exists on Windows only.
+
+| Kind | Errors | The fix |
+|---|---|---|
+| A part of a window that stays empty until the window is built | 62 | Each is declared with its real type, or `None`. The main window builds the page view's five helpers (text selection, search, form filling, links and the marks overlay), so it keeps its own typed reference to each (`self._overlay` and so on), and its 60-odd uses need no check. The view checks where it uses them, because a view can exist without them |
+| PyMuPDF's `PDF_` names | 13 | Read from `klarpdf/model/pymupdf_constants.py`, as `klarpdf/` does (M172.1) |
+| A name that hides one of Qt's own methods | 3 | Renamed (below) |
+| Qt accepts `None` where PySide6's types do not | 3 | Suppressed, with the reason: `setMenu(None)` and two `setCurrentItem(None)` |
+| The rest | 55 | The same kinds as in `klarpdf/`: a name reused for a second thing, a type written too narrowly, a check mypy cannot follow |
+
+Fixing the first kind exposed a few more errors, at the places that use those parts. All are
+cleared, with no suppression beyond the three above.
+
+**Three names hid one of Qt's own methods.** None was called the Qt way on those objects, so no
+user met it. But the next call would have failed, and mypy reports each as `[override]`:
+
+* **The page view's `scale` property** hid `QGraphicsView.scale()`. It is now `scene_scale`, which
+  pairs with the `device_scale` beside it. 46 lines in the app and the tests.
+* **The style buttons' `style()`** hid `QWidget.style()`. It is now `chosen_style()`.
+* **The text format bar's `style()`**, the same. It is now `text_style()`.
+
+The first new name for both was `current_style()`, and it hid something else. The dead-code check
+matches names only, and the marks overlay already has a `current_style` that only tests read. With
+a second method of that name called by the app, the check counted the overlay's as used, and its
+whitelist entry went stale. The names now collide with nothing. The rename also showed that the
+format bar's accessor is read only by tests. That was true before, and the name `style` hid it. It
+is kept in `tests/dead_code_whitelist.py` as a read-only accessor, with that reason.
+
+**What changes when the code runs.** Each is a case nothing reaches today.
+
+* `PdfView._grabs_before_form` answers False on a view with no marks overlay, where it raised
+  `AttributeError`. The app always builds the overlay. Some tests build a bare view.
+* An undo command's `undo` before its first `redo` does nothing, where it raised. Qt's undo stack
+  runs `redo` when a command is pushed.
+* `_raise_to_front_win32` returns at once off Windows. Its one caller already checks. The check is
+  what lets the Linux run skip its Windows calls.
+* The Qt message hook keeps the handler it replaced only if that handler can be called.
+* The zoom box keeps the line edit its editable combo box made, instead of asking for it each time.
+
+**Not done in M173.1.** 297 functions in the app do not state their types (303 findings). That is
+M173.2. The bare-container count, measured after these fixes as the owner asked: 150 in the app and
+290 in `klarpdf/`. The app's count is a floor, because M173.2 will add annotations, and some will be
+bare. Only 2 of the app's 150 are a page's marks list (`annotations: tuple`).
+
+**Verified by breaking it** (M173.1).
+
+* mypy failed on a planted error in an app file, in both runs.
+* A planted error on a line that runs on Windows only failed the Windows run and passed the Linux
+  run. One on a Linux-only line did the reverse. So each run sees lines the other does not.
+* `invoke typecheck` exited non-zero when only the Windows run failed, and named `win32`.
+* `fitz.PDF_ANNOT_LINK` written directly in the page view failed, and so did a new `style()`
+  method on a Qt widget, as `[override]`.
+* `tests/test_lint_config.py` failed when `store` was taken out of `files`, and named its three
+  files.
+* The full suite passes locally (3,325 passed, and the two Windows-only tests skipped). It was run
+  in full because the change reaches app startup and the event filter every test's events pass
+  through.
+* `typecheck` went red on purpose. A `workflow_dispatch` run on a probe branch planted a type error
+  on a Windows-only line of `platform_integration.py`. The job runs on Linux. Its Windows run
+  failed on that line, its Linux run passed, and `invoke typecheck` named `win32`. Its log shows
+  the dev lock installed.
+* One thing to know when doing this by hand: mypy reuses its cached answer for a file whose size
+  and time stamp have not changed. Two planted lines of the same length, written in the same
+  second, got the first one's answer. That is a property of the cache, not of the check, and no
+  real edit is likely to meet it.
+
 ## Future enhancements (deferred beyond the roadmap)
 
 Captured but not yet scheduled:
