@@ -23,6 +23,8 @@ from klarpdf.model.virtual_document import PageRef, VirtualDocument
 
 if TYPE_CHECKING:  # named in annotations only
     from klarpdf.model.page_edits import PageEdit
+    from klarpdf.model.tuples import Box
+    from klarpdf.model.virtual_document import State
 
 
 class _SnapshotCommand(QUndoCommand):
@@ -36,8 +38,8 @@ class _SnapshotCommand(QUndoCommand):
     def __init__(self, vdoc: VirtualDocument, text: str) -> None:
         super().__init__(text)
         self._vdoc = vdoc
-        self._before: tuple | None = None   # both taken on the first redo, which the stack runs on push
-        self._after: tuple | None = None
+        self._before: State | None = None   # both taken on the first redo, which the stack runs on push
+        self._after: State | None = None
 
     def _apply(self) -> None:  # pragma: no cover - overridden
         raise NotImplementedError
@@ -112,7 +114,7 @@ class CropPagesCommand(_SnapshotCommand):
     """Crop one or more pages to an absolute rect (M48). Snapshot-based, so undo restores the
     prior crops exactly (including a mix of crops across the pages)."""
 
-    def __init__(self, vdoc: VirtualDocument, indices: Iterable[int], rect: tuple) -> None:
+    def __init__(self, vdoc: VirtualDocument, indices: Iterable[int], rect: Box) -> None:
         self._indices = sorted(set(indices))
         label = "Crop page" if len(self._indices) == 1 else f"Crop {len(self._indices)} pages"
         super().__init__(vdoc, label)
@@ -139,7 +141,7 @@ class SetMetadataCommand(_SnapshotCommand):
     ``{}`` (remove all — both stores cleared at materialise), or ``None`` (revert to the
     origin's). Snapshot-based, so undo restores the prior state exactly."""
 
-    def __init__(self, vdoc: VirtualDocument, override: dict | None) -> None:
+    def __init__(self, vdoc: VirtualDocument, override: dict[str, str] | None) -> None:
         label = "Remove document metadata" if override == {} else "Edit document properties"
         super().__init__(vdoc, label)
         self._override = override
@@ -209,7 +211,7 @@ class SetAnnotationsCommand(_SnapshotCommand):
     """Set a page's whole annotation tuple in one undoable step — the z-order reorder (M59.8),
     where the ordering *is* the edit (paint order in the saved PDF + topmost-wins hit order)."""
 
-    def __init__(self, vdoc: VirtualDocument, index: int, annotations: tuple, text: str) -> None:
+    def __init__(self, vdoc: VirtualDocument, index: int, annotations: tuple[PageEdit, ...], text: str) -> None:
         super().__init__(vdoc, text)
         self._index, self._annotations = index, annotations
 

@@ -236,12 +236,8 @@ disallow_untyped_defs = true
 # does to PyMuPDF, most of which is not annotated: mypy then reads an attribute's type from the
 # value PyMuPDF's own code gives it. A rect's `x0` is a `float`, where it was unknown (M172.2).
 check_untyped_defs = true
-
 # A `tuple`, `dict` or `list` in a type says what it holds (M174). Without this, mypy checks nothing
-# done with what is taken out of one. On for klarpdf/ so far: M174.3 adds the app, which moves it up
-# to the settings above.
-[[tool.mypy.overrides]]
-module = ["klarpdf.*"]
+# done with what is taken out of one.
 disallow_any_generics = true
 
 

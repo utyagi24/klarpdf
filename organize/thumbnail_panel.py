@@ -46,6 +46,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem, QWidget
 
 from klarpdf.model.edit_engine import PyMuPDFEngine
+from klarpdf.model.tuples import Box
 from klarpdf.model.virtual_document import IMAGE_EXTENSIONS, VirtualDocument
 from viewer.reveal import is_settled
 
@@ -62,6 +63,10 @@ _SIDEBAR_CHROME = 36  # scrollbar + frame + the 2*spacing margin, added around t
 # Custom drag payload so a drop knows the source document + rows even across windows; the plain
 # QListWidget item-move MIME can't cross processes/windows and InternalMove can't leave the view.
 _PAGES_MIME = "application/x-klarpdf-pages"
+
+#: What decides which page a row shows and how it is framed: ``(source_id, source_page_index,
+#: rotation_override, crop_override)`` (:meth:`ThumbnailPanel._page_layout_key`).
+_RowKey = tuple[str, int, int | None, Box | None]
 # One mouse-wheel detent, in eighths of a degree — Qt's fixed unit for `angleDelta`, not a tuning
 # knob. Deliberately a local copy of `viewer.pdf_view._WHEEL_NOTCH` rather than an import: it keeps
 # `organize/` from depending on `viewer/` for a platform invariant that cannot drift.
@@ -124,7 +129,7 @@ class ThumbnailPanel(QListWidget):
         # only when scrolled into view, so opening a many-page document doesn't render every page.
         self._rendered: set[int] = set()            # rows whose real thumbnail has been rendered
         self._baked: fitz.Document | None = None    # edits-applied render doc, kept open for lazy use
-        self._layout_key: list = []                 # which page sits in which row (see _carryable_icons)
+        self._layout_key: list[_RowKey] = []        # which page sits in which row (see _carryable_icons)
         self.verticalScrollBar().valueChanged.connect(self._render_visible_thumbs)
 
         self.currentRowChanged.connect(self._on_row_changed)
@@ -501,14 +506,14 @@ class ThumbnailPanel(QListWidget):
             if row not in self._rendered and view_rect.intersects(self.visualItemRect(self.item(row))):
                 self._render_one(row)
 
-    def _page_layout_key(self) -> list:
+    def _page_layout_key(self) -> list[_RowKey]:
         """What decides *which* page sits in each row and how it is framed — everything about a
         `PageRef` except its annotations. Two populates with the same key have the same pages in the
         same rows, so a rendered thumbnail still depicts its row's page."""
         return [(ref.source_id, ref.source_page_index, ref.rotation_override, ref.crop_override)
                 for ref in self._vdoc.ordered]
 
-    def _carryable_icons(self) -> dict:
+    def _carryable_icons(self) -> dict[int, QIcon]:
         """Already-rendered icons that :meth:`populate` may reuse as each row's starting image.
 
         Rendering is lazy — only rows in the viewport are rasterised — but ``populate`` runs on

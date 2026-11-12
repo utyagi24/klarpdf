@@ -206,3 +206,14 @@ def test_the_page_does_resume(qapp, a_pdf, settings):
     qapp.processEvents()
     assert again.view.current_page == 1
     again.close()
+
+
+@pytest.mark.parametrize("remembered", ["abc", None, [2], {"n": 2}])
+def test_a_remembered_page_that_is_not_a_number_opens_at_page_one(qapp, a_pdf, settings, remembered):
+    """The settings file can be edited by hand. A page there that is not a whole number used to
+    reach ``int()`` unchecked, and the document did not open (M174.3)."""
+    settings.set_doc_state(a_pdf, {"page": remembered, "zoom": 1.0})
+    win = qapp.open_document(a_pdf)
+    qapp.processEvents()
+    assert win.view.current_page == 0
+    win.close()

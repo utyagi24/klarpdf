@@ -60,6 +60,7 @@ from PySide6.QtWidgets import (
 # themselves moved to `model/markup_palette.py` at M101 — see the note at their former site below.
 from klarpdf.model.markup_palette import HIGHLIGHT_COLORS as HIGHLIGHT_COLORS
 from klarpdf.model.markup_palette import TEXT_LINE_COLORS as TEXT_LINE_COLORS
+from klarpdf.model.tuples import Color
 
 # Stroke presets — the redline red default first, then a small spread that reads on white paper.
 _STROKE_PRESETS = (
@@ -171,7 +172,7 @@ def swatch_icon(color: tuple[float, float, float] | None, size: int = 16) -> QIc
     return QIcon(pix)
 
 
-def _close_colors(a: tuple, b: tuple) -> bool:
+def _close_colors(a: Color, b: Color) -> bool:
     """Tolerant colour equality — a save/reopen round-trips through PDF floats, so an exact ==
     against a palette tuple would miss (the same slack model-side merge uses)."""
     return len(a) == len(b) and all(abs(x - y) <= 0.01 for x, y in zip(a, b, strict=True))
@@ -276,7 +277,7 @@ class SwatchRowAction(QWidgetAction):
     picked = Signal(object)  # (r, g, b) — or None from the remove dot, where one exists
 
     def __init__(self, menu: QMenu, title: str, palette: Sequence[tuple[str, tuple[float, float, float]]],
-                 active: tuple | None,
+                 active: Color | None,
                  close_on_pick: bool = True, include_remove: bool = True,
                  show_title: bool = True) -> None:
         super().__init__(menu)
@@ -311,7 +312,7 @@ class SwatchRowAction(QWidgetAction):
         self.setDefaultWidget(box)
         self.set_active(active)
 
-    def set_active(self, active: tuple | None) -> None:
+    def set_active(self, active: Color | None) -> None:
         """Move the state ring onto ``active`` (or the remove dot for ``None``) — re-rendered in
         place, so a stay-open row shows the change under the still-open menu."""
         self.active = active
@@ -450,7 +451,7 @@ class LineStylingButton(_StyleButton):
         # Arrowheads (M74): line ends as style, Preview's model. Lines only.
         self._ends_menu = menu.addMenu("Arrowheads")
         self._ends_group = QActionGroup(self._ends_menu)
-        self._ends_actions: dict[tuple, QAction] = {}
+        self._ends_actions: dict[tuple[bool, bool], QAction] = {}
         for label, ends in _LINE_ENDS:
             act = self._ends_menu.addAction(label)
             act.setCheckable(True)

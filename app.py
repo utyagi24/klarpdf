@@ -22,7 +22,15 @@ from klarpdf.util.paths import normalize_path
 from store.settings import Settings
 
 if TYPE_CHECKING:  # named in annotations only
+    import pymupdf as fitz
+
+    from klarpdf.model.page_edits import Mark, PageEdit
+    from klarpdf.model.tuples import Box
     from main_window import MainWindow
+
+    #: One copied page: ``(source_id, source document, source_page_index, rotation_override,
+    #: annotations, crop_override)``, the page and its own edits (see :attr:`PdfApp.page_clipboard`).
+    PageClip = tuple[str, fitz.Document, int, int | None, tuple[PageEdit, ...], Box | None]
 
 _HANDOFF_TIMEOUT_MS = 400
 
@@ -124,13 +132,13 @@ class PdfApp(QApplication):
         # (source_id, source fitz.Document, source_page_index, rotation_override, annotations,
         # crop_override) — the page plus its per-page edits. Holding the source doc lets the
         # paste target register it and splice the PageRef losslessly.
-        self.page_clipboard: list[tuple] = []
+        self.page_clipboard: list[PageClip] = []
         # Object clipboard (M59; a **list** since M59.12): the copied free-placed marks (frozen
         # descriptor value objects — TextBox / InkStroke / Line / Shape), pasteable into any window
         # (single process, same pattern as the page clipboard but with no source document to carry).
         # A whole multi-selection copies at once and pastes as a group, keeping its arrangement, so
         # this mirrors `page_clipboard`: a list, empty when there is nothing to paste.
-        self.object_clipboard: list = []
+        self.object_clipboard: list[Mark] = []
         self._server: QLocalServer | None = None
         self._incoming: dict[QLocalSocket, bytes] = {}
 

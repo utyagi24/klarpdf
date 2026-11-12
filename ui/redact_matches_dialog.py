@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 from viewer.search import SearchResultsPanel, search_of
 
 if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.model.tuples import Box
     from klarpdf.model.virtual_document import VirtualDocument
     from viewer.pdf_view import PdfView
 
@@ -152,6 +153,6 @@ class RedactMatchesDialog(QDialog):
 
     # ---- result ---------------------------------------------------------------
 
-    def checked_hits(self) -> list[tuple[int, tuple]]:
+    def checked_hits(self) -> list[tuple[int, Box]]:
         """``(page_index, box)`` for every hit still ticked when the dialog was accepted."""
         return self.results.checked_hits()

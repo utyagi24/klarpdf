@@ -292,7 +292,7 @@ def test_a_finished_drag_is_not_ended_by_its_own_edit(win):
 
 
 @pytest.mark.parametrize("drag, held", [
-    ("move", lambda overlay: overlay._move_items[0][2]),
+    ("move", lambda overlay: overlay._move_items[0][1]),
     ("marquee", lambda overlay: overlay._marquee_item),
     ("redaction", lambda overlay: overlay._redact_band),
 ])

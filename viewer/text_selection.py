@@ -24,6 +24,7 @@ from viewer.blend import MultiplyRectItem
 from viewer.tools import ArmedTool
 
 if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.model.tuples import Box, Word
     from viewer.pdf_view import PdfView
 
 _SELECTION = QColor(0, 120, 215, 80)   # translucent selection blue (normal text selection)
@@ -52,7 +53,7 @@ _DRAG_THRESHOLD = 4.0  # scene units the pointer must move before a drag counts 
 class TextSelection:
     def __init__(self, view: PdfView) -> None:
         self._view = view
-        self._words: dict[int, list] = {}   # page_index -> words sorted in reading order
+        self._words: dict[int, list[Word]] = {}   # page_index -> words sorted in reading order
         self._items: list[QGraphicsRectItem] = []
         self._anchor: tuple[int, int] | None = None   # (page_index, word_order_index)
         self._cursor: tuple[int, int] | None = None
@@ -64,7 +65,7 @@ class TextSelection:
 
     # ---- word data --------------------------------------------------------------
 
-    def _words_for(self, page_index: int) -> list:
+    def _words_for(self, page_index: int) -> list[Word]:
         cached = self._words.get(page_index)
         if cached is None:
             ref = self._view._vdoc.ordered[page_index]
@@ -209,7 +210,7 @@ class TextSelection:
         self.repaint()
         return True
 
-    def selected_words(self, band: tuple[int, int] | None = None) -> list[tuple[int, int, tuple]]:
+    def selected_words(self, band: tuple[int, int] | None = None) -> list[tuple[int, int, Word]]:
         """``(page_index, order_index, word_tuple)`` for the inclusive selection.
 
         ``band`` clips the result to a range of page indices — what :meth:`repaint` passes so that
@@ -222,7 +223,7 @@ class TextSelection:
         first, last = lo[0], hi[0]
         if band is not None:
             first, last = max(first, band[0]), min(last, band[1])
-        out: list[tuple[int, int, tuple]] = []
+        out: list[tuple[int, int, Word]] = []
         for page_index in range(first, last + 1):
             words = self._words_for(page_index)
             start = lo[1] if page_index == lo[0] else 0
@@ -231,7 +232,7 @@ class TextSelection:
                 out.append((page_index, i, words[i]))
         return out
 
-    def line_bars(self, band: tuple[int, int] | None = None) -> dict[int, list[tuple]]:
+    def line_bars(self, band: tuple[int, int] | None = None) -> dict[int, list[Box]]:
         """The selection as one unioned box **per line, per page** — ``{page_index: [box, …]}``,
         each box a ``(x0, y0, x1, y1)`` tuple in page coordinates.
 
@@ -244,7 +245,7 @@ class TextSelection:
 
         ``band`` clips to a page range; see :meth:`selected_words`.
         """
-        bars: dict[tuple, list] = {}
+        bars: dict[tuple[int, int, int], list[float]] = {}
         for page_index, _i, w in self.selected_words(band):
             key = (page_index, w[5], w[6])          # (page, block_no, line_no)
             x0, y0, x1, y1 = w[:4]
@@ -254,9 +255,9 @@ class TextSelection:
             else:
                 bar[0], bar[1] = min(bar[0], x0), min(bar[1], y0)
                 bar[2], bar[3] = max(bar[2], x1), max(bar[3], y1)
-        by_page: dict[int, list[tuple]] = {}
+        by_page: dict[int, list[Box]] = {}
         for (page_index, _b, _l), bar in bars.items():
-            by_page.setdefault(page_index, []).append(tuple(bar))
+            by_page.setdefault(page_index, []).append((bar[0], bar[1], bar[2], bar[3]))
         return by_page
 
     def selected_text(self) -> str:

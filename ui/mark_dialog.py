@@ -44,6 +44,8 @@ field where a stale value is destructive rather than merely wrong.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, TypedDict
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -68,6 +70,9 @@ from klarpdf.model.content_marks import MARK_PRESETS, WHOLE_PAGE_DEFAULTS, Stamp
 from klarpdf.util.page_range import PageRangeError, parse_page_range
 from viewer.markup_style import swatch_icon
 
+if TYPE_CHECKING:  # named in annotations only
+    from klarpdf.model.tuples import Color
+
 CUSTOM = "Custom…"
 
 # A floor wide enough that the wrapped bake note below the form has a *stable* number of lines.
@@ -89,9 +94,17 @@ _DEFAULT_POINT_SIZE = 36.0
 PLACE_CLICK = "Stamp (click to place)"
 PLACE_PAGE = "Watermark (whole page)"
 
+class _StampStyle(TypedDict):
+    color: Color
+    opacity: float
+    angle: float
+    frame: bool
+    fontsize: float
+
+
 # Style defaults for a stamp: opaque, framed, upright, stamp red, at a legible size.
-_STAMP_DEFAULTS: dict = {"color": (0.80, 0.10, 0.10), "opacity": 1.0, "angle": 0.0, "frame": True,
-                   "fontsize": _DEFAULT_POINT_SIZE}
+_STAMP_DEFAULTS: _StampStyle = {"color": (0.80, 0.10, 0.10), "opacity": 1.0, "angle": 0.0, "frame": True,
+                                "fontsize": _DEFAULT_POINT_SIZE}
 
 # Said in the dialog, not just the docs: a content mark is a point of no return at Save (PLAN.md
 # §Design budgets → Honesty principle). The wording matches the save-time confirm.
@@ -384,7 +397,7 @@ class MarkDialog(QDialog):
 
     # ---- sticky style (remembered across sessions) -------------------------------
 
-    def style_state(self) -> dict:
+    def style_state(self) -> dict[str, object]:
         """The composed look, as JSON-able primitives for :class:`~store.settings.Settings`.
 
         The preset name rides along: reopening on ``Custom…`` is what stops :meth:`restore` from
@@ -402,7 +415,7 @@ class MarkDialog(QDialog):
             "frame": self.frame.isChecked(),
         }
 
-    def restore(self, state: dict) -> None:
+    def restore(self, state: object) -> None:
         """Reinstate a :meth:`style_state` mapping. Anything missing or malformed is *skipped*, not
         defaulted — a settings file from an older build must degrade to "some fields remembered",
         never to a dialog that refuses to open.

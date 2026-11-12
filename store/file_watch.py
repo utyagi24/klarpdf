@@ -31,7 +31,7 @@ class FileWatcher(QObject):
         self._watcher = QFileSystemWatcher(self)
         self._watcher.fileChanged.connect(self._on_file_changed)
         self._path: str | None = None
-        self._sig: tuple | None = None
+        self._sig: tuple[int, int] | None = None
 
     def watch(self, path: str | None) -> None:
         """Watch ``path`` (replacing any previous watch), recording its signature as synced."""
