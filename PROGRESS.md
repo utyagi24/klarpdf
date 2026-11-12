@@ -1453,7 +1453,8 @@ parts, and the box here is ticked on merge. Build in number order, except that M
     identical, and the other one varies between runs of the same code. Typing what agents send found
     three bad answers to malformed input, now fixed: `set_outline` with `page: "3"` and
     `redact_regions` with `box: 5` gave Python's own errors, and a box sent as `"1234"` was read as
-    four numbers and redacted. *Bridge.* Details in `PLAN.md` §M174
+    four numbers and redacted. *Bridge.* Details in `PLAN.md` §M174 —
+    [#458](https://github.com/utyagi24/klarpdf/pull/458)
   - [ ] **M174.3** **The app.** 155 findings, and the rule moves up to cover everything. *App*
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
