@@ -1459,7 +1459,8 @@ parts, and the box here is ticked on merge. Build in number order, except that M
     checks. 155 cleared, with no suppression. The types found one defect a user could see: a
     remembered page in the settings file that was not a whole number, such as `"abc"`, stopped the
     app from starting when launched on that document. It now opens at page 1. Four places that
-    relied on something nothing stated now say it. *App.* Details in `PLAN.md` §M174
+    relied on something nothing stated now say it. *App.* Details in `PLAN.md` §M174 —
+    [#459](https://github.com/utyagi24/klarpdf/pull/459)
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
