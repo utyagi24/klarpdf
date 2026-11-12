@@ -1348,7 +1348,8 @@ tick the box here on merge. Build in number order.
   held no longer reaches the drag code, so a drag whose release went elsewhere cannot follow a bare
   pointer. And after a scroll or an edit under a still pointer, the pointer is checked again once
   the page stops. The old tests called the pointer code directly and passed; the new ones move the
-  mouse as Qt delivers it. Details in `PLAN.md` §M175 — *WSL (headless)*
+  mouse as Qt delivers it. Details in `PLAN.md` §M175 — *WSL (headless)* —
+  [#461](https://github.com/utyagi24/klarpdf/pull/461)
 
 ## Roadmap — linting, dead code and type checking (M167–M174; planned 2026-11-08, M174 added 2026-11-11)
 
