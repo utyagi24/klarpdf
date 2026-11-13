@@ -11250,7 +11250,7 @@ failed), the button check removed, no check after a scroll, no check after a reb
 kept after a press, the place kept after the pointer leaves, and three wrong hit tests (x and y
 swapped in the link test and in the text-box test, and the link test offset by the crop).
 
-**A hand check on Windows, not yet done.** Open a report whose table of contents links to its pages.
+**A hand check on Windows, done by the owner on 2026-11-12.** Open a report whose table of contents links to its pages.
 Rest the pointer on an entry: it turns into a hand. Move off it: it turns back into an arrow. Scroll
 with the wheel until an entry stops under the still pointer: it turns into a hand. Draw a rectangle,
 pick the **Objects** tool, drag a box around the rectangle to select it, and rest the pointer on a
