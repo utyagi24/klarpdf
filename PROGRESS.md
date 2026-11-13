@@ -1369,7 +1369,8 @@ tick the box here on merge. Build in number order.
   `sha256sum --check --strict` over the files that ship. Also fixed: the release dry run had failed
   at its first step since M134 moved `version.py`, and a test now runs the workflow's own version
   line. The published files are not replaced (§Open follow-ups). Details in `PLAN.md` §M177 —
-  *Windows (headless) + CI dry runs*
+  *Windows (headless) + CI dry runs* —
+  [#463](https://github.com/utyagi24/klarpdf/pull/463)
 
 ## Roadmap — linting, dead code and type checking (M167–M174; planned 2026-11-08, M174 added 2026-11-11)
 
