@@ -18,9 +18,10 @@ by :mod:`model.destinations` and handed to
 the page sideways under a reader who did not ask for that. The owner's rule (2026-09-20) is that a
 bookmark or a link changes how far down the document you are and nothing else.
 
-Hit-testing reuses the view's rotation-aware box mapping (``page_and_local_at`` /
-``scene_rect_for_box``), the same one the text-selection and annotation overlays use, so link rects
-land correctly on rotated pages too.
+Hit-testing reuses the view's rotation-aware mapping (``page_and_local_at``), the same one the
+text-selection and annotation overlays use, so link rects land correctly on rotated pages too. It
+maps the pointer into the page once, rather than each link onto the screen: the hover cursor asks on
+every mouse move since M175, and placing one box on the screen reads the page from the file twice.
 
 **External (URI) links are clickable too, since M149** (#333) — the click hands the URL to the
 system browser, exactly as Help ▸ View Source and Help ▸ Donate… already do. This reverses M33/M46's
@@ -156,11 +157,14 @@ class LinkNavigator:
     def _hit(
         self, scene_pt: QPointF, entries_for: Callable[[int], Iterable[tuple[Box, _Target]]],
     ) -> _Target | None:
-        page_index, _ = self._view.page_and_local_at(scene_pt)
-        if page_index is None:
+        # The pointer goes into page points once. Mapping each box onto the screen instead cost
+        # 16 ms a move on a page with 91 links, because each mapping reads the page twice (M175).
+        page_index, local = self._view.page_and_local_at(scene_pt)
+        if page_index is None or local is None:
             return None
-        for box, target in entries_for(page_index):
-            if self._view.scene_rect_for_box(page_index, box).contains(scene_pt):
+        x, y = local.x(), local.y()
+        for (x0, y0, x1, y1), target in entries_for(page_index):
+            if min(x0, x1) <= x <= max(x0, x1) and min(y0, y1) <= y <= max(y0, y1):
                 return target
         return None
 

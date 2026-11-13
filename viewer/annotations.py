@@ -1076,12 +1076,17 @@ class AnnotationOverlay:
     def textbox_at(self, scene_pt: QPointF) -> tuple[int, TextBox] | None:
         """The ``(page_index, TextBox)`` under ``scene_pt`` (topmost), else None — for move / hover /
         re-edit. Only text boxes are interactive this way; highlights & redactions use right-click."""
-        page_index, _ = self._view.page_and_local_at(scene_pt)
-        if page_index is None:
+        # In page points, mapped once: the hover cursor asks on every mouse move (M175), and placing
+        # a box on the screen reads the page from the file twice per box.
+        page_index, local = self._view.page_and_local_at(scene_pt)
+        if page_index is None or local is None:
             return None
+        x, y = local.x(), local.y()
         for annot in reversed(self._view._vdoc.ordered[page_index].annotations):
-            if isinstance(annot, TextBox) and self._view.scene_rect_for_box(page_index, annot.rect).contains(scene_pt):
-                return page_index, annot
+            if isinstance(annot, TextBox):
+                x0, y0, x1, y1 = annot.rect
+                if min(x0, x1) <= x <= max(x0, x1) and min(y0, y1) <= y <= max(y0, y1):
+                    return page_index, annot
         return None
 
     def remove(self, page_index: int, annotation: object) -> None:

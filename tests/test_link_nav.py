@@ -1,9 +1,12 @@
 """In-viewer internal-link navigation (PLAN.md, M33). Offscreen GUI.
 
 Clicking a GoTo or named-destination link jumps to the page its target currently sits on, following
-reorders/deletes live; hovering shows a pointing-hand cursor; non-link clicks fall through to text
-selection. Navigation is verified by spying on goto_destination (the scroll itself is the view's job);
-where on the page a link lands has its own file, tests/test_destinations.py.
+reorders/deletes live; non-link clicks fall through to text selection. Navigation is verified by
+spying on goto_destination (the scroll itself is the view's job); where on the page a link lands has
+its own file, tests/test_destinations.py.
+
+The pointing hand on hover is tested with real mouse moves in tests/test_hover_cursor.py (M175).
+The tests here once called the cursor code directly, and passed while no reader ever saw the hand.
 """
 
 from __future__ import annotations
@@ -109,12 +112,6 @@ def test_link_to_deleted_target_is_not_clickable(app, linked_pdf, monkeypatch):
     calls = _spy_goto(win.view, monkeypatch)
     assert win.view.links.navigate_at(_center_of(win.view, 0, _GOTO_BOX)) is False
     assert calls == []
-
-
-def test_hover_over_link_shows_pointing_hand(app, linked_pdf):
-    win = app.open_document(linked_pdf)
-    win.view._update_hover_cursor(_center_of(win.view, 0, _GOTO_BOX))
-    assert win.view.viewport().cursor().shape() == Qt.CursorShape.PointingHandCursor
 
 
 # ---- a destination PyMuPDF hands back as a string (M138.2) ---------------------
@@ -248,18 +245,6 @@ def test_a_script_link_is_never_handed_anywhere(app, web_pdf, monkeypatch):
     assert win.view.links.openable_uri_at(center) is None    # ...and refused
     _click(win, _JS_BOX)
     assert handed == []
-
-
-def test_hover_over_a_web_link_shows_the_pointing_hand(app, web_pdf):
-    win = app.open_document(web_pdf)
-    win.view._update_hover_cursor(_center_of(win.view, 0, _WEB_BOX))
-    assert win.view.viewport().cursor().shape() == Qt.CursorShape.PointingHandCursor
-
-
-def test_a_refused_scheme_does_not_even_look_clickable(app, web_pdf):
-    win = app.open_document(web_pdf)
-    win.view._update_hover_cursor(_center_of(win.view, 0, _JS_BOX))
-    assert win.view.viewport().cursor().shape() != Qt.CursorShape.PointingHandCursor
 
 
 # ---- the URL on hover, asserted as a reader sees it -----------------------------
