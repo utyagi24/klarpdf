@@ -1358,7 +1358,8 @@ tick the box here on merge. Build in number order.
   platform, whether read-only mode is on, and the allowed folders in full (owner's choice). The
   server's instructions name the page. To make room for that line, the read-only build no longer
   carries the three paragraphs on writing, which advise on tools it does not serve. Not checked:
-  whether Claude Desktop shows the page to the model. Details in `PLAN.md` §M176 — *WSL (headless)*
+  whether Claude Desktop shows the page to the model. Details in `PLAN.md` §M176 — *WSL (headless)* —
+  [#462](https://github.com/utyagi24/klarpdf/pull/462)
 
 ## Roadmap — linting, dead code and type checking (M167–M174; planned 2026-11-08, M174 added 2026-11-11)
 
