@@ -94,6 +94,24 @@ jobs:
           Add-Content -Path dist/SHA256SUMS -Encoding ascii -Value $line
           Get-Content dist/SHA256SUMS
 
+      # M177 (#446) — check SHA256SUMS the way a user does, before anything is uploaded. v0.20.0 and
+      # v0.21.0 shipped it with CRLF line endings, and `sha256sum -c` then failed for every file on
+      # coreutils 8.x (Git Bash, Ubuntu 22.04, Debian 11, RHEL) and on macOS's `shasum`: each name
+      # was read with a trailing carriage return. coreutils 9.4 tolerates the CR, so running the
+      # check alone would stop catching it once this runner's coreutils moves on; the bytes are
+      # counted directly first. Not with `grep $'\r'`: Git Bash's grep strips a CR before it
+      # matches, so it never finds one (measured).
+      - name: Check SHA256SUMS the way a user does
+        shell: bash
+        working-directory: dist
+        run: |
+          cr=$(tr -dc '\r' < SHA256SUMS | wc -c)
+          if [ "$cr" -ne 0 ]; then
+            echo "::error file=dist/SHA256SUMS::SHA256SUMS has $cr carriage returns; sha256sum -c fails on coreutils 8.x and macOS (#446)"
+            exit 1
+          fi
+          sha256sum --check --strict SHA256SUMS
+
       # Run artifacts are the deliverable ONLY for the workflow_dispatch dry run; a tag push publishes a
       # Release (below) with the same files, so re-uploading them here is redundant on a release — and
       # that redundant ~200 MB-per-release upload, with no retention limit, eventually exhausted the
