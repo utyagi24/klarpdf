@@ -228,7 +228,9 @@ whatever your review says it means — nothing here decides that orange means de
 
 Every tool rejects an argument name it does not declare, rather than ignoring it, and each one's
 full field-by-field contract is readable as an MCP resource at `klarpdf://docs/<tool>` — because
-clients truncate long tool descriptions without saying so.
+clients truncate long tool descriptions without saying so. `klarpdf-mcp --version` prints the
+bridge's version, and an agent can read it, with the versions of the libraries under it and the
+switches in force, at `klarpdf://env`.
 
 <details>
 <summary><b>What that looks like in practice</b></summary>

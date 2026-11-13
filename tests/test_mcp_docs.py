@@ -19,11 +19,12 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import re
 
 import pytest
 
 from klarpdf.mcp_bridge.config import Config
-from klarpdf.mcp_bridge.server import create_server, server
+from klarpdf.mcp_bridge.server import ENV_URI, create_server, server
 
 CLIENT_CAP = 2048
 """Where the client actually cuts, verified in the Claude Code binary (`yfe = 2048`).
@@ -99,7 +100,7 @@ def test_the_instructions_carry_no_dead_margin_either():
 
     Compared after `strip()`, because a trailing newline is one byte and not the failure mode this
     guards: what matters is that no *line* carries an indent, which is what would happen the day
-    `INSTRUCTIONS` moves from a module constant into a function.
+    the instructions' parts move from module constants into a function.
     """
     for read_only in (False, True):
         text = create_server(Config(read_only=read_only)).instructions or ""
@@ -122,6 +123,19 @@ def test_the_server_instructions_fit_the_same_budget(read_only):
     assert size <= BUDGET, f"instructions are {size} chars, {size - BUDGET} over the {BUDGET} budget"
 
 
+@pytest.mark.parametrize("read_only", [False, True], ids=["default", "read-only"])
+def test_the_instructions_name_only_tools_this_build_serves(read_only):
+    """Advice on a tool the server does not offer spends the budget and sends the model looking for
+    it. Under `--read-only` the paragraphs on writing and redacting are left out for this (M176),
+    and that is what made room for the pointer to `klarpdf://env`."""
+    every_tool = {t.name for t in tools()}
+    built = create_server(Config(read_only=read_only))
+    served = {t.name for t in tools(built)}
+    named = set(re.findall(r"`([a-z_]+)`", built.instructions or "")) & every_tool
+    assert named, "the check found no tool names, so it is not reading the instructions"
+    assert named <= served, f"the instructions name tools this build does not serve: {named - served}"
+
+
 # ---- the docs resource -------------------------------------------------------
 
 RESOURCE_CAP = 100_000
@@ -140,7 +154,7 @@ def test_every_documented_tool_publishes_a_static_resource():
     from klarpdf.mcp_bridge.docs import REFERENCE
 
     listed = {str(r.uri) for r in asyncio.run(server.list_resources())}
-    assert listed == {f"klarpdf://docs/{name}" for name in REFERENCE}
+    assert listed == {f"klarpdf://docs/{name}" for name in REFERENCE} | {ENV_URI}
 
 
 @pytest.mark.parametrize("read_only", [False, True], ids=["default", "read-only"])
@@ -150,9 +164,13 @@ def test_every_listed_resource_can_actually_be_read(read_only):
     built = create_server(Config(read_only=read_only))
     served = {t.name for t in tools(built)}
     for resource in asyncio.run(built.list_resources()):
-        body = read(str(resource.uri), built)
-        assert body, f"{resource.uri} read back empty"
-        assert str(resource.uri).rsplit("/", 1)[-1] in served
+        uri = str(resource.uri)
+        body = read(uri, built)
+        assert body, f"{uri} read back empty"
+        if uri.startswith("klarpdf://docs/"):
+            assert uri.rsplit("/", 1)[-1] in served
+        else:
+            assert uri == ENV_URI, f"{uri} is neither a tool's docs nor the environment page"
 
 
 @pytest.mark.parametrize(

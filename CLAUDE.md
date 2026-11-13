@@ -506,8 +506,9 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
 - **An MCP tool description over ~2 KB is cut in half in transit, and nothing errors.** Claude Code
   truncates a tool description at **2,048** characters (`yfe` in the client binary) and appends
   `… [truncated]`; the *same* constant truncates the server's `instructions` block, so that is not
-  the uncapped escape hatch it looks like — ours fits only because it is under the cap, with 195
-  characters to spare on the `--read-only` build. `redact_text` lost **69%** of its 6,573 characters
+  the uncapped escape hatch it looks like — ours fits only because it is under the cap, with 209
+  characters to spare on the default build. The `--read-only` build is shorter, because it leaves
+  out the advice on writing (M176). `redact_text` lost **69%** of its 6,573 characters
   this way, and it was the wrong 69%: three milestones of agent-facing documentation written into a
   channel that silently discards it, found by a tester saying "I cannot see this" rather than by any
   test. **So a description is a budget: 1,900 characters, and the overflow goes to

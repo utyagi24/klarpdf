@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import functools
 import inspect
+import json
 import os
 import sys
 from collections.abc import Callable, Mapping
@@ -47,6 +48,7 @@ from mcp_types import CallToolRequestParams, CallToolResult, TextContent
 from klarpdf.mcp_bridge import annotations as annotation_tools
 from klarpdf.mcp_bridge import docs, headings, queries, redaction, tables, transforms
 from klarpdf.mcp_bridge.config import Config, PathNotAllowed, PathPolicy
+from klarpdf.mcp_bridge.environment import environment
 from klarpdf.mcp_bridge.strict_args import rejection_message, unknown_parameters
 from klarpdf.model.virtual_document import PasswordRequired
 from klarpdf.version import __version__
@@ -54,7 +56,14 @@ from klarpdf.version import __version__
 if TYPE_CHECKING:  # named in annotations only
     from klarpdf.mcp_bridge.replies import ExtractedPage, FormFieldsReply, OutlineReply, SearchReply
 
-INSTRUCTIONS = """\
+ENV_URI = "klarpdf://env"
+"""The resource that reports the bridge's version, its libraries' and its switches (M176)."""
+
+# The server's `instructions` come in three parts, so that `--read-only` can leave out the middle
+# one (M176). It advises on tools that mode does not serve, and the client cuts the whole block at
+# 2,048 characters (M105). With all three parts, the read-only build would have been 27 over the
+# 1,900 that `tests/test_mcp_docs.py` allows.
+_READING = """\
 KlarPDF exposes a local, offline PDF engine: reading, page transforms, and verified redaction.
 Nothing here touches the network.
 
@@ -63,7 +72,9 @@ layer at all, and whether it is encrypted; `get_outline`, `get_links` and `searc
 you want.
 Reach for `extract_text` on specific pages once you know which, and `render_page` only when the
 text layer cannot answer the question (scans, figures, layout, signatures).
+"""
 
+_WRITING = """
 The write tools never touch the document you give them. Each one takes an explicit `out` path,
 writes a new file, and refuses if `out` is the input or an existing file (pass `overwrite: true` if
 replacing one is intended).
@@ -80,10 +91,25 @@ longer tagged.
 
 `redact_text` and `redact_regions` DELETE content and verify the result before reporting success.
 Preview with `search` first and show the user what matched.
+"""
 
+_CLOSING = f"""
 Page numbers are 1-based everywhere, matching what a reader sees. Large results are capped rather
 than truncated silently: if a reply carries `truncated: true`, narrow the request.
+
+Bridge and engine versions: `{ENV_URI}`.
 """
+
+_READ_ONLY = (
+    "\nThis server is running READ-ONLY: the transform and redaction tools are not available.\n"
+)
+
+
+def _instructions(read_only: bool) -> str:
+    """The server's `instructions`. Under ``--read-only``, without the advice on writing (M176)."""
+    if read_only:
+        return _READING + _CLOSING + _READ_ONLY
+    return _READING + _WRITING + _CLOSING
 
 
 def _is_directory_error(exc: OSError) -> bool:
@@ -251,13 +277,7 @@ def create_server(config: Config | None = None) -> MCPServer:
         title="KlarPDF",
         version=__version__,
         extensions=[strict],
-        instructions=INSTRUCTIONS
-        + (
-            "\nThis server is running READ-ONLY: the transform and redaction tools are not "
-            "available.\n"
-            if cfg.read_only
-            else ""
-        ),
+        instructions=_instructions(cfg.read_only),
         # Since mcp 2.1 the SDK logs each refused call at INFO on stderr, with the refusal's text,
         # and a client may keep a server's stderr in a file. For a `redact_text` that matched
         # nothing, that text is the string the user wanted removed. At WARNING the bridge's stderr
@@ -354,6 +374,24 @@ def create_server(config: Config | None = None) -> MCPServer:
         description="The complete contract for one tool, past the client's description cap.",
         mime_type="text/markdown",
     )(_documentation)
+
+    def _environment() -> str:
+        """The bridge's version, its libraries', and the switches it was started with (M176)."""
+        return json.dumps(environment(cfg), indent=2)
+
+    # Served in both modes, so registered before `--read-only`'s early exit. It is static, so it
+    # appears in `resources/list`, and the instructions name it, because a model would not think
+    # to look for it otherwise.
+    server.resource(
+        ENV_URI,
+        name="env",
+        title="Bridge environment",
+        description=(
+            "The bridge's version; the PyMuPDF, MuPDF, MCP SDK and Python versions it runs on; "
+            "the platform; and its switches: read-only mode and the folders it may reach."
+        ),
+        mime_type="application/json",
+    )(_environment)
 
     def publish_docs() -> None:
         """Advertise a static docs resource for each documented tool **this build serves**.
@@ -1226,9 +1264,18 @@ server = create_server()
 
 
 def parse_args(argv: list[str] | None = None) -> Config:
+    # `--version` and `--help` print to stdout and exit before `main` starts the server, so they
+    # cannot corrupt the JSON-RPC stream that stdout becomes (M176).
     parser = argparse.ArgumentParser(
         prog="klarpdf-mcp",
-        description="KlarPDF's PDF engine as MCP tools, over stdio. Makes no network connections.",
+        description=(
+            f"klarpdf-mcp {__version__}: KlarPDF's PDF engine as MCP tools, over stdio. "
+            "Makes no network connections."
+        ),
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}",
+        help="print the version and exit",
     )
     parser.add_argument(
         "--read-only",

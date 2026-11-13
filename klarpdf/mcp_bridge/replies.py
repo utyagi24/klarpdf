@@ -426,3 +426,24 @@ class RedactionReport(TypedDict, total=False):
     boxes_redacted: int
     residual_scope: list[int]
     warnings: list[str]
+
+
+# ---- the environment -----------------------------------------------------------
+
+
+class EnvironmentReply(TypedDict):
+    """``klarpdf://env`` (M176): what the bridge runs on, and the switches it was started with.
+
+    ``allowed_roots`` is empty when ``paths_restricted`` is false. The folders are written the way a
+    refusal names them, so the two can be compared.
+    """
+
+    klarpdf: str
+    pymupdf: str
+    mupdf: str
+    mcp: str
+    python: str
+    platform: str
+    read_only: bool
+    paths_restricted: bool
+    allowed_roots: list[str]
