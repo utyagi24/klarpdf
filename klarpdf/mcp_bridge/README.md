@@ -45,6 +45,7 @@ Go straight to [The tools](#the-tools).
   [Claude Desktop](#claude-desktop) · [Codex CLI](#codex-cli) · [Gemini CLI](#gemini-cli) ·
   [any other client](#any-other-client)
 - [Limiting what the server can do](#limiting-what-the-server-can-do)
+- [Which version is running](#which-version-is-running)
 
 **Using the tools**
 
@@ -424,6 +425,26 @@ Three details that matter in practice:
 Writes are on by default because no write tool can destroy data by construction: each needs an
 explicit new output path, and in-place save is never exposed. `--read-only` is the cautious opt-out,
 not the recommended setting.
+
+## Which version is running
+
+At a terminal:
+
+```
+klarpdf-mcp --version
+```
+
+It prints `klarpdf-mcp` and the version, then exits. `klarpdf-mcp --help` shows the version too, at
+the top.
+
+An agent can ask the running server instead, by reading the resource `klarpdf://env`. It reports
+the bridge's version, the versions of PyMuPDF, MuPDF, the MCP SDK and Python, and the platform. It
+also reports the switches above: whether read-only mode is on, and the full path of each folder
+`--allow-root` allows. The server's instructions tell the agent the page is there. So if you ask
+"which version of the PDF bridge is this?", the agent can find out without a file to open.
+
+The page names no other path. If you paste it into a bug report, the only paths in it are the
+folders you allowed.
 
 ## The tools
 

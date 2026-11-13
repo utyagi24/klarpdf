@@ -11256,6 +11256,112 @@ with the wheel until an entry stops under the still pointer: it turns into a han
 pick the **Objects** tool, drag a box around the rectangle to select it, and rest the pointer on a
 corner: it shows a resize arrow.
 
+### M176 — the bridge says which version it is *(unplanned)* (2026-11-12)
+
+[#416](https://github.com/utyagi24/klarpdf/issues/416). Nobody could ask the bridge its version.
+`klarpdf-mcp --version` was refused, and `--help` did not show it. An agent could not find it
+either. The server sends it to the client when they connect (`serverInfo`), but clients do not pass
+it on to the model, and no tool or resource reported it.
+
+**Surfaces: bridge only.** Nothing in `klarpdf/model/` or `klarpdf/util/` changes, so the app is
+not reached and there is no app test to write.
+
+#### What changed
+
+**`--version` and `--help`.** `klarpdf-mcp --version` prints `klarpdf-mcp <version>` and exits 0.
+`--help` shows the same text at the top of its description (owner, 2026-11-12). Both are argparse's
+own actions. Both print to stdout and exit inside `parse_args`, before `main` starts the server.
+That order matters, because once the server runs, stdout is the JSON-RPC stream.
+
+**A `klarpdf://env` resource.** It reports, as JSON:
+
+| Field | What it holds | Read from |
+|---|---|---|
+| `klarpdf` | the bridge's version | `klarpdf.version.__version__` |
+| `pymupdf`, `mupdf` | the PDF library's version, and the MuPDF version it wraps | `pymupdf.VersionBind`, `pymupdf.VersionFitz` |
+| `mcp` | the MCP SDK's version | the installed package's metadata |
+| `python`, `platform` | the Python version, and the system it runs on | `platform.python_version()`, `platform.platform()` |
+| `read_only` | whether `--read-only` is on | the server's `Config` |
+| `paths_restricted`, `allowed_roots` | whether `--allow-root` is in force, and its folders | the server's `PathPolicy` |
+
+Every value is read when the resource is read, so none can go stale. The code is in
+`klarpdf/mcp_bridge/environment.py`, and the reply's type is `EnvironmentReply` in `replies.py`.
+The resource is served in both modes.
+
+`platform.platform()` describes the system and does not branch on it. It is not the OS-specific
+code that CLAUDE.md keeps in `platform_integration.py`, and the bridge could not import that file,
+because it belongs to the app.
+
+**The folders are listed in full** (owner, 2026-11-12). The ticket left three choices open: the
+full paths, a count, or nothing. The objection to full paths was that they put the user's folders
+in front of the model and into any bug report the page is pasted into. But a refused call already
+shows them to the model: `PathPolicy.check` names every allowed root in its message, and
+`_explain` passes that message on unchanged (M124). A count would only have kept them out of a
+pasted report. With the paths on the page, the model can choose a path inside them before it is
+refused. They are written as the refusal writes them, so the two can be compared. Nothing else on
+the page names a path or the machine: not the Python executable, not the home folder, not the host
+name. A test checks this.
+
+**The instructions name the page.** Being in `resources/list` is not enough, because the model has
+to think of looking, as with `klarpdf://docs/{tool}`. So the instructions end with *"Bridge and
+engine versions: `klarpdf://env`."*
+
+#### Making room in the instructions
+
+The client cuts the instructions at 2,048 characters, and `tests/test_mcp_docs.py` holds them to
+1,900 (M105). Before this change the default build was 1,793 characters, and the `--read-only`
+build was 1,881, because it appends a line saying so. The new line is 46 characters with its blank
+line, which would have taken the read-only build to 1,927.
+
+**`--read-only` now leaves out the three paragraphs on writing** (owner, 2026-11-12): what the
+write tools guarantee, what survives a write, and the redaction warning. They advise on tools that
+mode does not serve, and `test_read_only_says_so_in_its_instructions` already said why that is
+wrong: it sends the model looking for them. The instructions are now three module constants,
+`_READING`, `_WRITING` and `_CLOSING`, joined by `_instructions(read_only)`. The default build is
+the old text plus the new line, unchanged otherwise (checked against `main`), at 1,839 characters.
+The read-only build is 826. So the default build is now the longer one, with 61 characters left
+under the budget and 209 under the client's cap.
+
+A new test reads the tool names in the instructions and fails if one is a tool the build does not
+serve. It is the check that would have caught the write paragraphs in the read-only build.
+
+**Rejected** (in #416, kept here so the argument is not made again):
+
+* **A `bridge_version` field in `get_info`.** It needs a PDF path to report a fact about the
+  server, and it has room for one value.
+* **A `get_version` tool.** Its description would sit in every session's context for a call made
+  almost never.
+* **The version in the instructions alone.** It spends the budget, and the library versions would
+  not fit.
+* **An MCP prompt.** Prompts are for the user to pick. Clients show them as choices (Claude Code
+  makes them slash commands), and none applies one by itself.
+* **Shortening two sentences instead of dropping the write paragraphs.** It would have left the
+  read-only build 2 characters under the budget, so the next line anyone adds would need another
+  cut.
+
+M105 rejected resources at first because a client may not pass them to the model. That was checked
+for this ticket: Codex and Gemini list and read the bridge's resources by themselves, and Claude
+Code reads them through `ListMcpResourcesTool` and `ReadMcpResourceTool`. **Claude Desktop is not
+checked.** The owner said this does not block the change, because the version is not
+safety-critical.
+
+#### Checks
+
+`tests/test_mcp_env.py`: each value on the page against a second source where one exists (the
+package metadata, `sys.version_info`); the page's fields against `EnvironmentReply`; an
+unrestricted server; a read-only server with two folders, whose page names each folder as a refusal
+does; no other path or the machine's name on the page; the page listed and named in the
+instructions in both modes; `--version`'s exact output and exit code; the version in `--help`; and
+`--version` and `--help` run as a separate process with stdin left open, which fails on a time
+limit if the server starts. `tests/test_mcp_docs.py`: the two tests that took every listed resource
+to be a tool's docs now allow the environment page, and the new tool-name check.
+
+**Broken on purpose 7 ways**, and each break failed its own tests: the write paragraphs put back
+into the read-only build (the budget test and the tool-name test failed), `--version` removed, the
+version taken out of `--help`, the folders left off the page, Python's path added to the page, the
+MCP version written into the code, and the server started before the options are read (the process
+test failed on its 60-second limit).
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352
