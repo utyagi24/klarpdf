@@ -101,7 +101,11 @@ try {
     $lines = foreach ($a in @('dist\klarpdf-setup-x64.exe', 'dist\klarpdf-portable-x64.exe')) {
         if (Test-Path $a) { "$((Get-FileHash $a -Algorithm SHA256).Hash.ToLower())  $(Split-Path $a -Leaf)" }
     }
-    $lines | Set-Content -Path 'dist\SHA256SUMS' -Encoding ascii
+    # Each line ends in LF, written by hand: Set-Content ends lines with Windows' CRLF whatever
+    # -Encoding says, and `sha256sum -c` (coreutils 8.x) and macOS's `shasum -c` then read every
+    # file name with a trailing CR and fail to open it (#446, PLAN.md §M177). release.yml appends
+    # to this file the same way, and checks the result before it uploads it.
+    $lines | ForEach-Object { "$_`n" } | Set-Content -Path 'dist\SHA256SUMS' -Encoding ascii -NoNewline
     $lines | ForEach-Object { Write-Host "    $_" }
 
     Write-Host "==> Done. dist\: klarpdf-setup-x64.exe, klarpdf-portable-x64.exe, SHA256SUMS" -ForegroundColor Green

@@ -1360,6 +1360,16 @@ tick the box here on merge. Build in number order.
   carries the three paragraphs on writing, which advise on tools it does not serve. Not checked:
   whether Claude Desktop shows the page to the model. Details in `PLAN.md` §M176 — *WSL (headless)* —
   [#462](https://github.com/utyagi24/klarpdf/pull/462)
+- [x] **M177** *(unplanned)* **A SHA256SUMS a user can check** —
+  [#446](https://github.com/utyagi24/klarpdf/issues/446). *Release only; no app or bridge code.*
+  PowerShell wrote the release's `SHA256SUMS` with Windows line endings, so `sha256sum -c` failed
+  for every file on Git Bash, coreutils 8.x and macOS's `shasum`, though every hash was right. All
+  29 published releases have such a file. The three writers now end each line in LF, and the
+  release job checks the file before it uploads anything: it fails on a carriage return, then runs
+  `sha256sum --check --strict` over the files that ship. Also fixed: the release dry run had failed
+  at its first step since M134 moved `version.py`, and a test now runs the workflow's own version
+  line. The published files are not replaced (§Open follow-ups). Details in `PLAN.md` §M177 —
+  *Windows (headless) + CI dry runs*
 
 ## Roadmap — linting, dead code and type checking (M167–M174; planned 2026-11-08, M174 added 2026-11-11)
 
@@ -5118,6 +5128,15 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **Replace the CRLF `SHA256SUMS` on the published releases?** (M177, found 2026-11-12). Every
+  published release, v0.1.0 to v0.21.0, carries a `SHA256SUMS` with Windows line endings, which
+  `sha256sum -c` on coreutils 8.x and macOS's `shasum -c` reject for every file. M177 fixes the
+  next release, not these. Each file could be swapped for an LF copy with
+  `gh release upload <tag> SHA256SUMS --clobber`: the hashes stay the same, only the line endings
+  change. Against it: it edits published releases, and anyone who saved the old file holds one that
+  no longer matches the release byte for byte. The latest release matters most, because the bridge
+  README fetches `releases/latest/download/SHA256SUMS`. Until a decision, `tr -d '\r' < SHA256SUMS |
+  sha256sum -c` checks an old file (`PLAN.md` §M177).
 - **Say what a bare `tuple`, `dict` or `list` holds?** — graduated to **M174** (owner, 2026-11-11:
   all 445, as a new milestone).
 - **Move a text box up at the bottom of the page, as Edge does?** (M166, deferred by the owner
