@@ -402,6 +402,10 @@ gh run list --workflow=audit.yml --limit 3      # main must be green before you 
    ```sh
    gh release edit v0.9.4 --draft=false
    ```
+   **Publishing is final.** The repo has GitHub's *immutable releases* turned on (every release
+   from v0.12.0 on has `immutable: true`), so once a release is published GitHub refuses any change
+   to its assets or its tag. A wrong asset found afterwards can only be fixed by a new release. Step 5
+   is the last chance: a draft can still be changed.
 
 7. **Watch the PyPI upload** (M135). Flipping the draft fires `publish-pypi.yml` on the
    `release: published` event — that is the point of hanging it there rather than on the tag push,

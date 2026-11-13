@@ -5129,15 +5129,16 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
-- **Replace the CRLF `SHA256SUMS` on the published releases?** (M177, found 2026-11-12). Every
-  published release, v0.1.0 to v0.21.0, carries a `SHA256SUMS` with Windows line endings, which
-  `sha256sum -c` on coreutils 8.x and macOS's `shasum -c` reject for every file. M177 fixes the
-  next release, not these. Each file could be swapped for an LF copy with
-  `gh release upload <tag> SHA256SUMS --clobber`: the hashes stay the same, only the line endings
-  change. Against it: it edits published releases, and anyone who saved the old file holds one that
-  no longer matches the release byte for byte. The latest release matters most, because the bridge
-  README fetches `releases/latest/download/SHA256SUMS`. Until a decision, `tr -d '\r' < SHA256SUMS |
-  sha256sum -c` checks an old file (`PLAN.md` §M177).
+- **Replace the CRLF `SHA256SUMS` on the 18 releases from before immutable releases?** (M177, found
+  2026-11-12). Every published release, v0.1.0 to v0.21.0, carries a `SHA256SUMS` with Windows line
+  endings, which `sha256sum -c` on coreutils 8.x and macOS's `shasum -c` reject for every file.
+  M177 fixes the next release, not these. **The 11 from v0.12.0 on cannot be changed**: the repo
+  has GitHub's immutable releases turned on, and each has `immutable: true`. The 18 before it,
+  v0.1.0 to v0.10.1, still could be (`gh release upload <tag> SHA256SUMS --clobber`; the hashes stay
+  the same, only the line endings change). Against it: the setting is a decision that published
+  releases do not change, a checksum file that changes after release looks like tampering to anyone
+  who saved the old one, and these versions are rarely downloaded. Recommended: leave all 29 as they
+  are. `tr -d '\r' < SHA256SUMS | sha256sum -c` checks an old file (`PLAN.md` §M177).
 - **Say what a bare `tuple`, `dict` or `list` holds?** — graduated to **M174** (owner, 2026-11-11:
   all 445, as a new milestone).
 - **Move a text box up at the bottom of the page, as Edge does?** (M166, deferred by the owner
