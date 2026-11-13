@@ -1368,7 +1368,7 @@ tick the box here on merge. Build in number order.
   release job checks the file before it uploads anything: it fails on a carriage return, then runs
   `sha256sum --check --strict` over the files that ship. Also fixed: the release dry run had failed
   at its first step since M134 moved `version.py`, and a test now runs the workflow's own version
-  line. The published files are not replaced (§Open follow-ups). Details in `PLAN.md` §M177 —
+  line. The published files stay as they are (owner, 2026-11-13). Details in `PLAN.md` §M177 —
   *Windows (headless) + CI dry runs* —
   [#463](https://github.com/utyagi24/klarpdf/pull/463)
 
@@ -5129,16 +5129,9 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
-- **Replace the CRLF `SHA256SUMS` on the 18 releases from before immutable releases?** (M177, found
-  2026-11-12). Every published release, v0.1.0 to v0.21.0, carries a `SHA256SUMS` with Windows line
-  endings, which `sha256sum -c` on coreutils 8.x and macOS's `shasum -c` reject for every file.
-  M177 fixes the next release, not these. **The 11 from v0.12.0 on cannot be changed**: the repo
-  has GitHub's immutable releases turned on, and each has `immutable: true`. The 18 before it,
-  v0.1.0 to v0.10.1, still could be (`gh release upload <tag> SHA256SUMS --clobber`; the hashes stay
-  the same, only the line endings change). Against it: the setting is a decision that published
-  releases do not change, a checksum file that changes after release looks like tampering to anyone
-  who saved the old one, and these versions are rarely downloaded. Recommended: leave all 29 as they
-  are. `tr -d '\r' < SHA256SUMS | sha256sum -c` checks an old file (`PLAN.md` §M177).
+- **Replace the CRLF `SHA256SUMS` on the published releases?** — no (owner, 2026-11-13). The 11
+  from v0.12.0 on are immutable releases and cannot be changed, and the 18 older ones stay as they
+  are too. Reasons in `PLAN.md` §M177.
 - **Say what a bare `tuple`, `dict` or `list` holds?** — graduated to **M174** (owner, 2026-11-11:
   all 445, as a new milestone).
 - **Move a text box up at the bottom of the page, as Edge does?** (M166, deferred by the owner

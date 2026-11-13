@@ -11430,8 +11430,11 @@ fails in the suite. RELEASE.md §4 recommends that dry run, so the recommendatio
   on, v0.12.0 to v0.21.0 (each has `immutable: true`, checked 2026-11-12). That includes v0.21.0,
   whose file the bridge README fetches as `releases/latest/download/SHA256SUMS` until the next
   release. The 18 older releases, v0.1.0 to v0.10.1, could still be changed only because they came
-  before the setting. Whether to change them is the owner's call, carried in `PROGRESS.md` §Open
-  follow-ups. Anyone holding an old file can check it with `tr -d '\r' < SHA256SUMS | sha256sum -c`.
+  before the setting. **They stay as they are too** (owner, 2026-11-13). The setting is a decision
+  that published releases do not change. A checksum file that changes after release looks like
+  tampering to anyone who saved the old one, even with the same hashes. And those versions are
+  rarely downloaded. Anyone holding an old file can check it with
+  `tr -d '\r' < SHA256SUMS | sha256sum -c`.
   Because a published release cannot be fixed, the new check runs before the draft is made, which
   is the last point at which an asset can still change.
 * **Not run on a Mac.** `shasum` was measured with Git Bash's copy of the same Perl script.
