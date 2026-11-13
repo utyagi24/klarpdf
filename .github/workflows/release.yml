@@ -44,7 +44,7 @@ jobs:
           $v = '${{ inputs.version }}'
           if (-not $v) {
             if ('${{ github.ref_type }}' -eq 'tag') { $v = '${{ github.ref_name }}'.TrimStart('v') }
-            else { $v = (python -c 'import version; print(version.__version__)').Trim() }
+            else { $v = (python -c 'from klarpdf.version import __version__; print(__version__)').Trim() }
           }
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "version = $v"
