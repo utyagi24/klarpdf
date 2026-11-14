@@ -44,7 +44,7 @@ jobs:
           $v = '${{ inputs.version }}'
           if (-not $v) {
             if ('${{ github.ref_type }}' -eq 'tag') { $v = '${{ github.ref_name }}'.TrimStart('v') }
-            else { $v = (python -c 'import version; print(version.__version__)').Trim() }
+            else { $v = (python -c 'from klarpdf.version import __version__; print(__version__)').Trim() }
           }
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "version = $v"
@@ -76,9 +76,10 @@ jobs:
           # SHA256SUMS covers what a user installs and RUNS — build.ps1 wrote the two exes before the
           # bundle existed, so append rather than regenerate. (vendor-wheels.zip stays out on purpose:
           # it is the AGPL corresponding-source pointer, not something anyone executes.)
+          # The LF is written by hand and -NoNewline keeps Add-Content's CRLF out (#446, M177).
           $f = Get-Item dist/klarpdf-*.mcpb
           $line = "$((Get-FileHash $f -Algorithm SHA256).Hash.ToLower())  $($f.Name)"
-          Add-Content -Path dist/SHA256SUMS -Encoding ascii -Value $line
+          Add-Content -Path dist/SHA256SUMS -Encoding ascii -NoNewline -Value "$line`n"
 
       # install.py is a release artifact even though it is a committed file: it is what a user
       # downloads and RUNS, so it belongs beside the exes in SHA256SUMS. It carries the version it
@@ -91,8 +92,26 @@ jobs:
           Copy-Item packaging/mcp/installer/install.py dist/install.py
           $f = Get-Item dist/install.py
           $line = "$((Get-FileHash $f -Algorithm SHA256).Hash.ToLower())  $($f.Name)"
-          Add-Content -Path dist/SHA256SUMS -Encoding ascii -Value $line
+          Add-Content -Path dist/SHA256SUMS -Encoding ascii -NoNewline -Value "$line`n"
           Get-Content dist/SHA256SUMS
+
+      # M177 (#446) — check SHA256SUMS the way a user does, before anything is uploaded. v0.20.0 and
+      # v0.21.0 shipped it with CRLF line endings, and `sha256sum -c` then failed for every file on
+      # coreutils 8.x (Git Bash, Ubuntu 22.04, Debian 11, RHEL) and on macOS's `shasum`: each name
+      # was read with a trailing carriage return. coreutils 9.4 tolerates the CR, so running the
+      # check alone would stop catching it once this runner's coreutils moves on; the bytes are
+      # counted directly first. Not with `grep $'\r'`: Git Bash's grep strips a CR before it
+      # matches, so it never finds one (measured).
+      - name: Check SHA256SUMS the way a user does
+        shell: bash
+        working-directory: dist
+        run: |
+          cr=$(tr -dc '\r' < SHA256SUMS | wc -c)
+          if [ "$cr" -ne 0 ]; then
+            echo "::error file=dist/SHA256SUMS::SHA256SUMS has $cr carriage returns; sha256sum -c fails on coreutils 8.x and macOS (#446)"
+            exit 1
+          fi
+          sha256sum --check --strict SHA256SUMS
 
       # Run artifacts are the deliverable ONLY for the workflow_dispatch dry run; a tag push publishes a
       # Release (below) with the same files, so re-uploading them here is redundant on a release — and

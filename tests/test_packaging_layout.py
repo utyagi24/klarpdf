@@ -27,12 +27,18 @@ by the Windows build itself.
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
+
+from klarpdf.version import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
 ISS = ROOT / "packaging" / "app" / "installer.iss"
 BUILD_PS1 = ROOT / "packaging" / "app" / "build.ps1"
+RELEASE_YML = ROOT / ".github" / "workflows" / "release.yml"
 
 
 def _iss_relative_paths() -> list[tuple[str, str]]:
@@ -106,6 +112,30 @@ def test_the_powershell_build_walks_up_to_the_repo_root() -> None:
         f"$Root line walks up {walks_up}: {line.strip()!r}. $Root would be "
         f"{'too shallow' if walks_up < depth else 'above the repo'}, and every path built from it "
         f"would be wrong — silently, because Push-Location succeeds either way."
+    )
+
+
+def test_the_release_dry_run_finds_the_version() -> None:
+    """`release.yml` reads the version with a `python -c` line when a dry run is not given one.
+
+    That line said ``import version`` until M177. M134 had moved ``version.py`` to
+    ``klarpdf/version.py`` two months before, so every dry run since failed at its first step. A tag
+    push takes the version from the tag and never runs the line, which is how it went unseen. This
+    runs the workflow's own command from the repo root, as the job does after its checkout.
+    """
+    found = re.findall(r"python -c '([^']*)'", RELEASE_YML.read_text(encoding="utf-8"))
+    assert len(found) == 1, (
+        f"expected one `python -c '…'` line in {RELEASE_YML.relative_to(ROOT)}, found {found}. If the "
+        f"version step changed shape, update this test to run what it runs now."
+    )
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    result = subprocess.run(
+        [sys.executable, "-c", found[0]], cwd=ROOT, env=env, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0 and result.stdout.strip() == __version__, (
+        f"{RELEASE_YML.relative_to(ROOT)} reads the dry run's version with `python -c {found[0]!r}`, "
+        f"which printed {result.stdout.strip()!r} (exit {result.returncode}) instead of "
+        f"{__version__!r}:\n{result.stderr}"
     )
 
 

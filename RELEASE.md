@@ -331,8 +331,14 @@ gh run list --workflow=audit.yml --limit 3      # main must be green before you 
    `klarpdf-portable-x64.exe`, **`klarpdf-<version>.mcpb`** (the bridge's one-click Claude Desktop
    bundle, **M131**), `SHA256SUMS`, and `vendor-wheels.zip` (the exact build inputs / AGPL
    corresponding-source pointer at that tag). **It does NOT auto-publish.**
-   - `SHA256SUMS` covers the two executables **and** the `.mcpb` — what a user installs and runs.
-     `vendor-wheels.zip` is deliberately out: it is a source pointer, not something anyone executes.
+   - `SHA256SUMS` covers the two executables, the `.mcpb` **and** `install.py` (since M136) — what a
+     user installs and runs. `vendor-wheels.zip` is deliberately out: it is a source pointer, not
+     something anyone executes.
+   - The job checks `SHA256SUMS` **before** it uploads anything (M177): it fails on a carriage
+     return, then runs `sha256sum --check --strict` over the files in `dist/`. So a red *Check
+     SHA256SUMS the way a user does* step means no draft was made. Every release up to v0.21.0
+     shipped the file with Windows line endings, which `sha256sum -c` on coreutils 8.x and macOS's
+     `shasum -c` reject for every file (#446).
    - The `.mcpb` is **not bit-reproducible** — measured 2026-08-28, two consecutive builds of
      identical content hash differently, because the zip records timestamps. Same caveat as
      PyInstaller's output below: the hash in `SHA256SUMS` is computed in the same run that built the
@@ -340,7 +346,9 @@ gh run list --workflow=audit.yml --limit 3      # main must be green before you 
    - The runner is *online*, so it re-fetches wheels — the CI build is not the offline build; the
      authoritative offline build + clean-machine install are validated locally (see Verification in
      `PLAN.md`). To build/upload artifacts **without** drafting a Release (e.g. a dry run), use the
-     workflow's `workflow_dispatch` ("Run workflow") trigger instead of a tag.
+     workflow's `workflow_dispatch` ("Run workflow") trigger instead of a tag
+     (`gh workflow run release.yml --ref <branch>`). Run without a version, it reads one from
+     `klarpdf/version.py`.
 
 5. **Smoke-test the draft before publishing:**
    - Headless suite green (above).
@@ -394,6 +402,10 @@ gh run list --workflow=audit.yml --limit 3      # main must be green before you 
    ```sh
    gh release edit v0.9.4 --draft=false
    ```
+   **Publishing is final.** The repo has GitHub's *immutable releases* turned on (every release
+   from v0.12.0 on has `immutable: true`), so once a release is published GitHub refuses any change
+   to its assets or its tag. A wrong asset found afterwards can only be fixed by a new release. Step 5
+   is the last chance: a draft can still be changed.
 
 7. **Watch the PyPI upload** (M135). Flipping the draft fires `publish-pypi.yml` on the
    `release: published` event — that is the point of hanging it there rather than on the tag push,

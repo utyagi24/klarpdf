@@ -11362,6 +11362,96 @@ version taken out of `--help`, the folders left off the page, Python's path adde
 MCP version written into the code, and the server started before the options are read (the process
 test failed on its 60-second limit).
 
+### M177 — a SHA256SUMS a user can check *(unplanned)* (2026-11-12)
+
+[#446](https://github.com/utyagi24/klarpdf/issues/446). Checking a release's downloads with
+`sha256sum -c SHA256SUMS` failed for every file on Git Bash, on older Linux and on macOS, although
+every hash was right. To someone checking a download, that reads as a tampered release. It is not
+new: **all 29 published releases**, v0.1.0 to v0.21.0, carry the same kind of file (measured
+2026-11-12).
+
+**Surfaces: the release only.** Nothing in `klarpdf/` changes, so neither the app nor the bridge
+runs different code. What changes is a file the release ships, and it covers both products'
+downloads: the app's two executables, and the bridge's `.mcpb` and `install.py`.
+
+#### The cause
+
+PowerShell writes `SHA256SUMS` in three places. `packaging/app/build.ps1` writes the two
+executables' lines with `Set-Content`, and `.github/workflows/release.yml` appends the `.mcpb`'s and
+`install.py`'s with `Add-Content`. Both cmdlets end every line with Windows' newline, CRLF.
+`-Encoding ascii` chooses the characters, not the line ending. A checker then reads each file name
+with a carriage return on the end, looks for `klarpdf-setup-x64.exe\r`, and finds no such file.
+
+Not every checker fails. Measured on v0.21.0's file:
+
+| Checker | Result |
+|---|---|
+| `sha256sum -c` from GNU coreutils 8.32 (Git Bash; 8.x is also what Ubuntu 22.04, Debian 11 and RHEL ship) | every file `FAILED open or read`, exit 1 |
+| the same with `--ignore-missing`, the command the bridge README gives | `no file was verified`, exit 1: every line is skipped as a missing file, so the message does not even point at the cause |
+| `shasum -a 256 -c`, the Perl script macOS uses (run here from Git Bash's copy, not on a Mac) | every file `FAILED open or read` |
+| `sha256sum -c` from coreutils 9.4 (Ubuntu 24.04, under WSL) | `OK`: it accepts the carriage return |
+
+#### What changed
+
+**Each line ends in LF.** All three writers put the `\n` on the line themselves and pass
+`-NoNewline`, so the cmdlet adds nothing. The result was checked from the edited lines, run in order
+in PowerShell: no carriage return, no byte-order mark, a final LF, and all four files `OK`. The
+encoding is unchanged.
+
+**The release checks the file before it uploads anything.** A new step runs after the last line is
+appended and before the upload and the draft Release. It counts the carriage returns in the file
+and fails if there are any, then runs `sha256sum --check --strict` in `dist/`: the command a user
+runs, on the files that ship. A failure stops the job, so no draft is made. `--strict` also fails a
+malformed line, such as a byte-order mark in front of the first hash.
+
+* **Why count the carriage returns as well.** coreutils 9.4 accepts them. Once the runner's Git
+  Bash moves to coreutils 9, `sha256sum` alone would pass the very file this issue is about.
+* **Why not `grep $'\r'`.** Git Bash's grep removes a carriage return at the end of a line before
+  it matches, as GNU grep does on Windows for a file it takes to be text, so it never finds one.
+  The first draft of this check used it and passed v0.21.0's file; only the `sha256sum` line caught
+  it. `tr -dc '\r' | wc -c` counts bytes the same way on every platform.
+
+**The dry run finds the version again.** This defect was found while proving the check. A
+`workflow_dispatch` run that is not given a version reads one with a `python -c` line, which said
+`import version`. M134 moved that file to `klarpdf/version.py`, so every dry run since has failed at
+its first step with `No module named 'version'`. A tag push takes the version from the tag and
+never runs the line, and the last dry run before this was M133's (2026-09-05), so nobody saw it. The
+line now imports `klarpdf.version`, as `build.ps1` does, and
+`tests/test_packaging_layout.py` runs the workflow's own line from the repo root, so the next move
+fails in the suite. RELEASE.md §4 recommends that dry run, so the recommendation works again.
+
+`RELEASE.md` §4 also said `SHA256SUMS` covers the two executables and the `.mcpb`. It has covered
+`install.py` too since M136, and now says so.
+
+#### Not done
+
+* **The published releases keep their files.** The repo has GitHub's *immutable releases* turned
+  on, so GitHub refuses any change to the assets of the 11 releases published since it was turned
+  on, v0.12.0 to v0.21.0 (each has `immutable: true`, checked 2026-11-12). That includes v0.21.0,
+  whose file the bridge README fetches as `releases/latest/download/SHA256SUMS` until the next
+  release. The 18 older releases, v0.1.0 to v0.10.1, could still be changed only because they came
+  before the setting. **They stay as they are too** (owner, 2026-11-13). The setting is a decision
+  that published releases do not change. A checksum file that changes after release looks like
+  tampering to anyone who saved the old one, even with the same hashes. And those versions are
+  rarely downloaded. Anyone holding an old file can check it with
+  `tr -d '\r' < SHA256SUMS | sha256sum -c`.
+  Because a published release cannot be fixed, the new check runs before the draft is made, which
+  is the last point at which an asset can still change.
+* **Not run on a Mac.** `shasum` was measured with Git Bash's copy of the same Perl script.
+
+#### Checks
+
+**Broken on purpose, in CI.** The new step was committed first, with the build still writing CRLF.
+A dry run of that commit failed at its first step instead (the version defect above), which is how
+that defect was found. With the version fixed and the build still writing CRLF, the dry run failed
+at the new step, which reported the file's 4 carriage returns. With the fix, the dry run passed it.
+
+**Locally.** The check's script, taken from `release.yml`, run against v0.21.0's file (failed: 4
+carriage returns), an LF copy of it (passed), and the LF copy with one byte of `install.py` changed
+(failed: `computed checksum did NOT match`). The write sequence run in Windows PowerShell 5.1 with
+the edited lines; CI runs PowerShell 7, whose two cmdlets behave the same here. The version test
+failed with `ModuleNotFoundError` when `import version` was put back.
+
 ## The open issues, grouped — M149–M152 *(planned 2026-09-19)*
 
 Grouped at the owner's request (2026-09-19: *"plan milestones for all of the issues, except for 352
