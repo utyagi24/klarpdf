@@ -6,7 +6,7 @@
 ;   ISCC /DMyAppVersion=0.1.0 packaging\app\installer.iss
 ; build.ps1 passes the version from version.py.
 ;
-; Two spellings, deliberately (assets\brand\BRAND.md §Type, PROGRESS.md §G2): MyAppName is the
+; Two spellings, deliberately (assets\brand\BRAND.md §Type, docs\milestones\G2.md): MyAppName is the
 ; display string Windows renders in its own font (Add/Remove Programs, shortcuts, Open With);
 ; MyAppSlug is the lowercase identifier used for paths and filenames.
 

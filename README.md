@@ -52,7 +52,8 @@ sidebar on a one-page document no longer hangs the window. The MCP bridge gets t
 newer pinned dependencies (see [Use it from an agent](#use-it-from-an-agent-mcp)).
 Full release notes live on
 [GitHub Releases](https://github.com/utyagi24/klarpdf/releases); live status — milestones
-(**M0–M44 + R1–R6 complete**), per-release notes, open follow-ups — in [PROGRESS.md](PROGRESS.md).
+(**M0–M44 + R1–R6 complete**), open follow-ups — in [PROGRESS.md](PROGRESS.md); each milestone's
+design and record in [docs/milestones/](docs/milestones/).
 
 ## Features
 
@@ -281,8 +282,10 @@ access you already have.
 
 | Doc | What |
 |---|---|
-| [PLAN.md](PLAN.md) | The design source of truth: product spec, architecture, dependencies/packaging, portability, build order, **Execution**, verification |
-| [PROGRESS.md](PROGRESS.md) | The status source of truth: milestone checklist, per-release notes, release links, **Open follow-ups** |
+| [PLAN.md](PLAN.md) | The design across milestones: product spec, architecture, dependencies/packaging, portability, build order, **Execution**, verification, roadmaps |
+| [PROGRESS.md](PROGRESS.md) | The status source of truth: the current release, open milestones, the 1.0 list, **Open follow-ups** |
+| [docs/milestones/](docs/milestones/) | One file per milestone: its design and its record |
+| [docs/releases.md](docs/releases.md) | The notes of every release before the current one |
 | [RELEASE.md](RELEASE.md) | Maintainer runbook — change a dependency · respond to a Dependabot alert · cut a release (via the `invoke` tasks) |
 | [CLAUDE.md](CLAUDE.md) | Orientation + working conventions for contributors/agents |
 | [DEPENDENCIES.md](DEPENDENCIES.md) | Pinned libraries + build toolchain — exact versions, licenses |

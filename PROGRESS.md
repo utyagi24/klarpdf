@@ -1,11 +1,8 @@
 # KlarPDF — Build Progress
 
-Live status of the build (milestone detail in `PLAN.md` §Execution). **One PR per milestone** — when
-it merges, check the box here in the same PR and append the PR link.
-
-> **This file is the single source of truth for live status** — shipped versions, per-release notes,
-> release links, milestone ticks, and open follow-ups. `PLAN.md` (design/spec) and `CLAUDE.md`
-> (conventions) **link here, they don't restate it** — see CLAUDE.md §How we work → "Where things live".
+Live status: the current release, the open milestones, the 1.0 list and the open follow-ups. A done
+milestone's record is in its own file in `docs/milestones/`. Older release notes are in
+`docs/releases.md`. Which file holds what: `CLAUDE.md` §How we work → *Where things live*.
 
 **Status:** ✅ **v0.21.0 shipped** — **files that open, text boxes that keep their look, and
 checks that keep the code clean** (M158–M169). Nothing here is a new feature, so `RELEASE.md` §3's

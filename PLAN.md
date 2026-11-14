@@ -1,9 +1,9 @@
 # Plan: Local, Offline, Native-Windows PDF Viewer + Page Editor (Python)
 
-> **This document is the design / spec source-of-truth** — architecture, packaging, verification, and
-> the roadmap of *planned* work (the what & why). It deliberately carries **no live status**: for
-> shipped versions, per-release notes, release links, milestone ticks, and open follow-ups, see
-> **`PROGRESS.md`** (the single source of status). How-we-work conventions live in **`CLAUDE.md`**.
+> **This document holds the design that holds across milestones**: architecture, packaging,
+> verification, and the roadmaps. Each milestone's own design and record are in
+> `docs/milestones/<id>.md`; a milestone heading below links to its file. Status is in
+> **`PROGRESS.md`**. Which file holds what: `CLAUDE.md` §How we work → *Where things live*.
 
 > **Revision (2026-06-15)** — folded in two decisions without changing the product: a
 > **Development environment** section (Hybrid — build the cross-platform core + headless tests in
