@@ -364,6 +364,12 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **Move PLAN.md's old roadmap sections out too?** — not decided (2026-11-13, PR #464). After
+  the milestone files moved, `PLAN.md` is still about 226,000 characters. Most of it is design
+  still in use: packaging, the bridge's architecture and safety model, and the linting strategy.
+  About 78,000 characters are the roadmap sections for v0.2–v0.9 and R1–R6. Those record the plans
+  the milestones were built from, and could move to `docs/` as well. It needs a decision first:
+  some of them, such as R1–R6's design budgets, may still bind new work.
 - **Replace the CRLF `SHA256SUMS` on the published releases?** — no (owner, 2026-11-13). The 11
   from v0.12.0 on are immutable releases and cannot be changed, and the 18 older ones stay as they
   are too. Reasons in `PLAN.md` §M177.
