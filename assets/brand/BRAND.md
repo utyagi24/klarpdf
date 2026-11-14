@@ -57,7 +57,7 @@ correct when Windows switches theme (which the app already follows).
 tracking (About lockup, README header, splash). Anywhere the OS renders the name as a plain string in
 its own font — window title, installer AppName, Add/Remove Programs, the `.pdf` "Open With" list — it
 is **`KlarPDF`**, initialism capitalised. Lowercase identifiers (`klarpdf`) are a technical constraint
-of paths, URLs and package names, not a style: see `PROGRESS.md` §G2 for the full mapping.
+of paths, URLs and package names, not a style: see `docs/milestones/G2.md` for the full mapping.
 
 ## Icon system (summary; full spec in `README-icons.md`)
 

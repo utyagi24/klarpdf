@@ -5,10 +5,13 @@ as a pinned/auditable offline Windows installer. Replaces macOS Preview's view +
 workflow on Windows. Built **Windows-first** with Linux-ready seams.
 
 ## Start here, in order
-1. **`PROGRESS.md`** — the live checklist. Read this **first** to see what's done / in progress / next.
-2. **`PLAN.md`** — the single source of truth: product spec, architecture, dependencies & packaging,
-   portability, the phased **Build order**, the **Execution** section (milestones M0–M9, progress
-   convention, Windows handoff), and the **Verification** matrix.
+1. **`PROGRESS.md`** — what is shipped, what is open, the 1.0 list and the open follow-ups. Read it
+   first.
+2. **`PLAN.md`** — the design that holds across milestones: product spec, architecture, dependencies
+   & packaging, portability, the phased **Build order**, the **Execution** section, the
+   **Verification** matrix and the roadmaps.
+3. **`docs/milestones/<id>.md`** — one milestone's design and its record, such as
+   `docs/milestones/M152.md`. Open the one you need. Search the folder; do not read it whole.
 
 ## How we work (conventions — follow these)
 - **Hybrid dev (WSL + Windows).** The cross-platform code (`klarpdf/model/`, `viewer/`, `organize/`) and the
@@ -44,18 +47,40 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   drop stale remote-tracking refs. Don't let merged branches pile up. (GitHub auto-deletes the remote
   head branch on merge, so only the local copy needs cleaning.)
 - **One PR per milestone** (implementation); one PR per logical unit for planning/process changes. In
-  the same PR, tick the milestone's box in `PROGRESS.md` and link the PR.
-- **Cite sources.** Tie claims/numbers back to a `PLAN.md` section; don't present assumptions as facts.
+  the same PR, record the milestone as done (step 2 under *Where things live*).
+- **Cite sources.** Tie claims/numbers back to a `PLAN.md` section or a milestone file; don't present
+  assumptions as facts.
 - **Where things live — update in exactly one place** (avoid the drift that let a stale status blurb
-  triplicate across the docs). *Status* — shipped versions, release links, per-release notes, milestone
-  ticks, open follow-ups → **`PROGRESS.md`** only. *Design / spec* — architecture, packaging,
-  verification, the roadmap & rationale of each milestone → **`PLAN.md`**. *How we work* — conventions,
-  gotchas, environment → **`CLAUDE.md`**. The other two **link**, never restate. Rule of thumb:
-  **status → PROGRESS; design → PLAN; process → CLAUDE; a reproducible defect → a GitHub issue**
-  (the last slot is new — see *A reproducible defect in shipped code goes to GitHub Issues* below).
+  triplicate across the docs).
+  * **`PROGRESS.md`**: status. The current release's notes, the open milestones, the 1.0 list and
+    the open follow-ups.
+  * **`PLAN.md`**: design that holds across milestones: architecture, packaging, verification and
+    the roadmaps.
+  * **`docs/milestones/<id>.md`**: everything about one milestone. `## Design` says why and how;
+    `## Progress` records it as done and links the PR. A part such as M152.1 goes in its parent's
+    file. A group planned as one, such as M133–M136, has one file, `M133-M136.md`.
+  * **`docs/releases.md`**: the notes of every release before the current one.
+  * **`CLAUDE.md`**: how we work: conventions, gotchas, environment.
+  * **A reproducible defect**: a GitHub issue (see *A reproducible defect in shipped code goes to
+    GitHub Issues* below).
+
+  The others **link**, never restate. A milestone moves through these files in its own PRs, so
+  nothing waits for a cleanup:
+  1. **Planned**: create `docs/milestones/M178.md` with its `## Design`, and add an open
+     `- [ ] **M178**` line to its roadmap in `PROGRESS.md`. An unplanned milestone does steps 1 and
+     2 in one PR.
+  2. **Done**: add `## Progress` to the file, with the PR link. Take the `- [ ]` line out of
+     `PROGRESS.md` and add the milestone to that roadmap's `Done, each with its record…` line.
+  3. **Released**: the release PR moves the previous release's notes from the top of `PROGRESS.md`
+     to the top of `docs/releases.md` (`RELEASE.md` §3 step 2).
+
+  `PLAN.md` changes only when a milestone changes the design that holds across milestones. It is
+  not where a new milestone's write-up goes. Cite a milestone by its file, `docs/milestones/M178.md`.
+  An older citation such as `PLAN.md §M152` still works, because `PLAN.md` kept each moved heading
+  with a link to its file.
 - **`README.md` is the one sanctioned exception — and it must be updated on every release.** It is the
   shop window for the public repo, so it *does* restate the shipped version, a one-line what's-new
-  for the **current release only** (history lives in GitHub Releases / `PROGRESS.md`), and a
+  for the **current release only** (history lives in GitHub Releases / `docs/releases.md`), and a
   **Features** inventory; a visitor won't go read `PROGRESS.md`. That restatement is exactly what
   rots: README sat on `v0.9.4` through both v0.9.5 and v0.9.6. So the release checklist
   (`RELEASE.md` §3 step 2) names `README.md` alongside `PROGRESS.md` and `CLAUDE.md`, and the
@@ -84,7 +109,7 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   consistency*, so it is mechanical: in a code block, `uv` is the line and `pipx` is a trailing
   `# pipx: <equivalent>` comment; in prose and tables, `uv` is named first. Applies to
   `README.md`, `klarpdf/mcp_bridge/README.md`, `klarpdf/mcp_bridge/QUICKSTART.md` and any text
-  `install.py` prints. `PLAN.md`/`PROGRESS.md` are records, not instructions — do not rewrite their
+  `install.py` prints. `PLAN.md`, `PROGRESS.md` and the milestone files are records, not instructions — do not rewrite their
   history to match.
 
 - **Capture the follow-up in the session that found it.** *Where things live* routes open
@@ -111,7 +136,7 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   not also get a follow-up bullet, or the drift the *where things live* rule exists to prevent moves
   into a new pair of files. **A follow-up that gets decided graduates** into an issue or a milestone
   and leaves a one-line pointer behind, the way TC-007's items graduated into M99–M101. And **the
-  fix still owes its `PLAN.md` entry and `PROGRESS.md` milestone** under the rules above: the issue
+  fix still owes its milestone file** under the rules above: the issue
   records the *report* and the PR closes it with `Fixes #N`, but where the defect came from and what
   the fix changed are design and status, and they live where design and status live. **A fix built
   in parts closes its issue with its last part**: that PR says `Fixes #N`, and the earlier ones say
@@ -143,10 +168,10 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   * **Planning** groups issues from what their tickets already say: which share a theme, the order,
     the surfaces. It runs no new measurements and writes no design.
   * **Building the fix** is where the diagnosis happens: the root cause, the measurements, the
-    design, the questions for the owner, and the `PLAN.md` entry.
+    design, the questions for the owner, and the milestone file.
 
   Each step starts in a fresh session, so a diagnosis done early gets done again anyway.
-- **Every non-trivial change gets both a `PLAN.md` design entry and a `PROGRESS.md` milestone** —
+- **Every non-trivial change gets a milestone file** (`docs/milestones/<id>.md`) —
   in the *same* PR as the code, not afterwards. "Non-trivial" is anything that changes how the app
   behaves or how it is built: a new route through the save path, a contract change, a defect whose
   cause is worth knowing. A one-line typo fix is not; a fix that changes what a Save *writes* is.
