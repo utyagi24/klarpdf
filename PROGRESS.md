@@ -1,8 +1,9 @@
 # KlarPDF — Build Progress
 
-Live status: the current release, the open milestones, the 1.0 list and the open follow-ups. A done
-milestone's record is in its own file in `docs/milestones/`. Older release notes are in
-`docs/releases.md`. Which file holds what: `CLAUDE.md` §How we work → *Where things live*.
+Live status: the current release, the open milestones, the 1.0 list and the open follow-ups. Every
+milestone, planned or done, has its own file in `docs/milestones/`; this file lists the open ones,
+one line each. Older release notes are in `docs/releases.md`. Which file holds what: `CLAUDE.md`
+§How we work → *Where things live*.
 
 **Status:** ✅ **v0.21.0 shipped** — **files that open, text boxes that keep their look, and
 checks that keep the code clean** (M158–M169). Nothing here is a new feature, so `RELEASE.md` §3's
@@ -99,7 +100,7 @@ open is almost entirely in that category. The gate, all small and all concrete:
 ## Roadmap — "MCP / Agent Bridge" (**next**; version assigned at tag time)
 
 Spec + architecture in `PLAN.md` §MCP / Agent Bridge roadmap. Same conventions: **one PR per
-milestone**, tick the box here on merge. ⭐ marks the keystone (GUI-free, fully headless-testable).
+milestone**, record it as done in its file on merge (`CLAUDE.md` §*Where things live*). ⭐ marks the keystone (GUI-free, fully headless-testable).
 A new MCP server surface (`klarpdf/mcp_bridge/` package) that reuses the GUI-free `klarpdf/model/` core **without PySide6**
 and ships as a separate optional component — the `klarpdf-setup-x64.exe` audit surface is untouched.
 
@@ -115,7 +116,7 @@ Done, each with its record in its own file: [M38.5](docs/milestones/M38.md), [M3
 ## Roadmap — document structure for agents (M138–M142, M145 and M148; M138–M141, M145 and M148 done, M142 deferred)
 
 Design in `PLAN.md` §M138–M140 — **not restated here**. Same conventions: **one PR per milestone**,
-tick the box here on merge. Scoped **2026-09-07** from a session comparing the bridge against a
+record it as done in its file on merge (`CLAUDE.md` §*Where things live*). Scoped **2026-09-07** from a session comparing the bridge against a
 competing multi-format document MCP server, and then against the owner's own three goals: structural information for agents when a PDF has no bookmarks; *enriching* PDFs by writing
 that structure back as real bookmarks; and a Markdown rendering. The third is **not** scheduled —
 it is carried in §Open follow-ups.
@@ -185,7 +186,7 @@ GitHub issue except [#352](https://github.com/utyagi24/klarpdf/issues/352) and
 [#370](https://github.com/utyagi24/klarpdf/issues/370) (owner, 2026-09-19). Each milestone's
 diagnosis and design happen in the session that builds it, and its open questions are settled with
 the owner then. Same conventions: **one PR per milestone, or per part** where a milestone has parts;
-tick the box here on merge. Build in number order.
+record it as done in its file on merge (`CLAUDE.md` §*Where things live*). Build in number order.
 
 Done, each with its record in its own file: [M149](docs/milestones/M149.md), [M150](docs/milestones/M150.md), [M150.1](docs/milestones/M150.md), [M150.2](docs/milestones/M150.md), [M151](docs/milestones/M151.md), [M152](docs/milestones/M152.md), [M152.1](docs/milestones/M152.md), [M152.2](docs/milestones/M152.md), [M153](docs/milestones/M153.md), [M154](docs/milestones/M154.md), [M155](docs/milestones/M155.md), [M156](docs/milestones/M156.md), [M160](docs/milestones/M160.md), [M161](docs/milestones/M161.md), [M163](docs/milestones/M163.md), [M164](docs/milestones/M164.md), [M165](docs/milestones/M165.md), [M166](docs/milestones/M166.md), [M175](docs/milestones/M175.md), [M176](docs/milestones/M176.md), [M177](docs/milestones/M177.md).
 
@@ -314,8 +315,7 @@ Done, each with its record in its own file: [M110](docs/milestones/M110.md), [M1
 All that is left is to confirm the repository page shows its Sponsor button, and nothing depends
 on it. Independent of the v0.11.0 MCP roadmap — this track landed first. Full
 execution detail in `PLAN.md` §Public-release readiness (plan introduced in
-[#83](https://github.com/utyagi24/pdfproj/pull/83)). **One PR per item**; tick the box on merge and
-append the PR link. Steps were ordered — **G1 ran first, while the repo was still private**, and the
+[#83](https://github.com/utyagi24/pdfproj/pull/83)). **One PR per item**; record it as done in its file on merge (`CLAUDE.md` §*Where things live*). Steps were ordered — **G1 ran first, while the repo was still private**, and the
 flip itself was a manual GitHub action, not a PR. The pre-public hygiene scan was clean (no secrets in
 tree or history; `.gitignore` excludes build artifacts/wheels/`report.json`; CI uses `${{ secrets.* }}`).
 
