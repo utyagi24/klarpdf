@@ -507,3 +507,14 @@ the time it shipped, so it took **v0.18.0** at tag time. **M138–M157** shipped
 For live status — shipped versions, per-release notes, release links, milestone ticks, and **Open
 follow-ups** — see `PROGRESS.md` (the single source of status; read it first). Design/spec, including
 §Future enhancements for what's next, lives in `PLAN.md`.
+
+## Follow-ups
+
+- **Capture the follow-up in the session that found it.** *Where things live* routes open
+  follow-ups to `PROGRESS.md`; this is the part that rule assumes — that they get written at
+  all. Anything deferred, **rejected**, or noticed-but-not-fixed is committed before the session
+  ends, rejections with their reason so the next one does not re-derive a settled argument. Chat
+  scrollback is not a backlog: sessions end and context is compacted, and an item held only in an
+  assistant's working memory is lost silently at either boundary — three real findings from the
+  TC-007/TC-008 rounds were sitting there on 2026-08-18 (`PROGRESS.md` §Open follow-ups has them
+  now).

@@ -1,8 +1,20 @@
 # CLAUDE.md — KlarPDF
 
-Local, offline, **native-Windows** PDF viewer + page editor in Python (PySide6 + PyMuPDF), shipped
-as a pinned/auditable offline Windows installer. Replaces macOS Preview's view + splice/split
-workflow on Windows. Built **Windows-first** with Linux-ready seams.
+KlarPDF is a local, offline PDF toolkit in Python, built on PyMuPDF. It has three parts:
+
+- **The core** (`klarpdf/model/`, `klarpdf/util/`) is the PDF engine. It reads, edits, saves and
+  redacts documents. It has no user interface. The other two parts both use it.
+- **The desktop app** is a **native-Windows** PDF viewer and page editor in PySide6. It was inspired
+  by macOS Preview: the aim was to bring Preview's way of reading PDFs and moving, splitting and
+  joining their pages to Windows. It ships as a pinned, auditable, offline Windows installer. Its code is the top-level modules (`app.py`, `main_window.py` and others) and the
+  folders `viewer/`, `organize/`, `ui/` and `store/`.
+- **The MCP bridge** (`klarpdf/mcp_bridge/`) is a local MCP server. It gives Claude Code, Claude
+  Desktop and other agents tools that run on the core. It loads no Qt and does not use the
+  network. It is published on PyPI as `klarpdf`.
+
+The wheel holds only `klarpdf/`: the core and the bridge. The app is built **Windows-first** with
+Linux-ready seams. The bridge runs on Windows, macOS and Linux. What this means for a change:
+*Two consumers share one core*, below.
 
 ## Start here, in order
 1. **`PROGRESS.md`** — what is shipped, what is open, the 1.0 list and the open follow-ups. Read it
@@ -56,9 +68,10 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
     the open follow-ups.
   * **`PLAN.md`**: design that holds across milestones: architecture, packaging, verification and
     the roadmaps.
-  * **`docs/milestones/<id>.md`**: everything about one milestone. `## Design` says why and how;
-    `## Progress` records it as done and links the PR. A part such as M152.1 goes in its parent's
-    file. A group planned as one, such as M133–M136, has one file, `M133-M136.md`.
+  * **`docs/milestones/<id>.md`**: everything about one milestone, from the day it is first written
+    down. It has two parts. `## Design` says why the milestone exists and how it is built.
+    `## Progress` holds the PR details: what the PR did, and a link to it. A part such as M152.1
+    goes in its parent's file. A group planned as one, such as M133–M136, has one file, `M133-M136.md`.
   * **`docs/releases.md`**: the notes of every release before the current one.
   * **`CLAUDE.md`**: how we work: conventions, gotchas, environment.
   * **`docs/why-the-rules.md`**: the incidents and measurements behind the longer rules in
@@ -66,15 +79,22 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   * **A reproducible defect**: a GitHub issue (see *A reproducible defect in shipped code goes to
     GitHub Issues* below).
 
-  The others **link**, never restate. A milestone moves through these files in its own PRs, so
-  nothing waits for a cleanup:
-  1. **Planned**: create `docs/milestones/M178.md` with its `## Design`, and add an open
-     `- [ ] **M178**` line to its roadmap in `PROGRESS.md`. An unplanned milestone does steps 1 and
-     2 in one PR.
-  2. **Done**: add `## Progress` to the file, with the PR link. Take the `- [ ]` line out of
-     `PROGRESS.md` and add the milestone to that roadmap's `Done, each with its record…` line.
-  3. **Released**: the release PR moves the previous release's notes from the top of `PROGRESS.md`
-     to the top of `docs/releases.md` (`RELEASE.md` §3 step 2).
+  The others **link**, never restate.
+
+  **Where a milestone lives.** A milestone gets its file the first time it is written down. From
+  then on, everything about it is in that file. `PLAN.md` never holds a milestone's details.
+  `PROGRESS.md` holds one line for it, and only while it is open.
+  1. **Planned**, in a planning PR: create `docs/milestones/M178.md` with its `## Design`. Add an
+     open `- [ ] **M178**` line to its roadmap in `PROGRESS.md`.
+  2. **Built**, in the PR that builds it: add `## Progress` to the file, with what the PR did and a
+     link to it. Take the `- [ ]` line out of `PROGRESS.md`, and add the milestone to that
+     roadmap's `Done, each with its record…` line.
+  3. **Unplanned**: there is no planning PR. The PR that builds it creates the file with both parts
+     and adds it to the `Done…` line. It never has a `- [ ]` line.
+
+  Each step is part of a PR that happens anyway, so nothing waits for a cleanup. At a release, the
+  release PR moves the previous release's notes from the top of `PROGRESS.md` to the top of
+  `docs/releases.md` (`RELEASE.md` §3 step 2).
 
   `PLAN.md` changes only when a milestone changes the design that holds across milestones. It is
   not where a new milestone's write-up goes. Cite a milestone by its file, `docs/milestones/M178.md`.
@@ -90,14 +110,11 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   `klarpdf/mcp_bridge/QUICKSTART.md` and any text `install.py` prints. `PLAN.md`, `PROGRESS.md` and
   the milestone files are records: do not rewrite them to match. Why: `docs/why-the-rules.md` §uv first.
 
-- **Capture the follow-up in the session that found it.** *Where things live* routes open
-  follow-ups to `PROGRESS.md`; this is the part that rule assumes — that they get written at
-  all. Anything deferred, **rejected**, or noticed-but-not-fixed is committed before the session
-  ends, rejections with their reason so the next one does not re-derive a settled argument. Chat
-  scrollback is not a backlog: sessions end and context is compacted, and an item held only in an
-  assistant's working memory is lost silently at either boundary — three real findings from the
-  TC-007/TC-008 rounds were sitting there on 2026-08-18 (`PROGRESS.md` §Open follow-ups has them
-  now).
+- **Write down every follow-up in the session that found it.** Commit anything deferred, rejected,
+  or noticed but not fixed before the session ends. Open questions go to `PROGRESS.md` §Open
+  follow-ups, and defects go to GitHub Issues. Give a rejection its reason, so the next session does
+  not argue it again. Do not leave an item only in the chat: a session can end or be compacted at
+  any time. Why: `docs/why-the-rules.md` §Follow-ups.
 - **A reproducible defect in shipped code goes to GitHub Issues. Anything that still needs a
   decision stays in `PROGRESS.md` §Open follow-ups** (owner, 2026-08-25). An item that becomes an
   issue does not also get a follow-up bullet. A follow-up that gets decided becomes an issue or a
@@ -113,8 +130,9 @@ workflow on Windows. Built **Windows-first** with Linux-ready seams.
   Do not go looking for the cause. **Planning** groups issues from what their tickets say, and
   measures nothing. **Building the fix** is where the diagnosis, measurements, design, questions for
   the owner and the milestone file happen. Why: `docs/why-the-rules.md` §Investigate once.
-- **Every non-trivial change gets a milestone file** (`docs/milestones/<id>.md`), in the same PR as
-  the code. Non-trivial means it changes how the app behaves or how it is built; a typo fix is not.
+- **Every non-trivial change belongs to a milestone, and its PR fills in the milestone's file**
+  (`docs/milestones/<id>.md`). For a planned milestone, the file exists and the PR adds `## Progress`.
+  For an unplanned one, the PR creates the file (*Where things live*, above). Non-trivial means it changes how the app behaves or how it is built; a typo fix is not.
   The milestone takes the next free number, and `*(unplanned)*` if it was not on the roadmap.
   **"Next free" counts the open PRs too, and a reserved number counts as taken.** Check first:
   `for n in $(gh pr list --state open --json number -q '.[].number'); do gh pr diff $n | grep -E '^\+' | grep -oE '\bM[0-9]{2,3}\b'; done | sort -u`.
