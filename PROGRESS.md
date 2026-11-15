@@ -195,7 +195,7 @@ open is almost entirely in that category. The gate, all small and all concrete:
   2026-09-24): the account now has a public Sponsors listing, so the app's link lands on it.
   Checked the same day: `hasSponsorsListing` is `true`, and `https://github.com/sponsors/utyagi24`
   answers 200 with no redirect. Nothing in the app changed (G6 Part 2).
-- [ ] **One known flaky test** (`test_single_instance`) — down from two. **Re-measured
+- [x] **One known flaky test** (`test_single_instance`) — down from two. **Re-measured
   2026-08-12 and the stakes were overstated:** both were only ever seen on *local Windows* runs,
   while the required `pytest` check runs on `ubuntu-latest` — and across 200 recorded `test.yml` runs
   neither has failed it (191 green; all 9 failures trace to the 2026-07-29 widget-leak episode, the
@@ -212,6 +212,11 @@ open is almost entirely in that category. The gate, all small and all concrete:
   one down." `test_single_instance` remains the sole item here. **2026-09-19: a second one, seen on
   CI** — `test_incremental_save.py::test_saving_twice_from_one_model_does_not_stack_revisions`, once on
   the `windows` job (§Open follow-ups).
+  **Taken off the 1.0 list** (owner, 2026-11-14). It has not been seen to fail since the one local
+  failure written down on 2026-07-09. CI runs it on Linux and on Windows. Since the `windows` job
+  started on 2026-08-27, 14 of 385 CI runs failed, and none of them failed on this test. Logs from
+  before mid-August have expired, so the July failures could not be checked again. The second
+  flaky test was fixed on 2026-09-20. A new failure of either goes to GitHub Issues.
 - [x] **Item E — background rendering** (`PLAN.md` §Deferred): 1–3 s of frozen UI per page per zoom
   on image-heavy documents. Its gate is already met; this is scheduling, not justification. **Scheduled as
   M152.2** (2026-09-19). Revised 2026-09-24: M152.2 now draws slow pages in pieces on the window's
@@ -5902,7 +5907,9 @@ it on this side of the line.
   offset and adds a third `%%EOF`; a fresh identifier cannot touch either, because it is written
   after the offset. Held 2,000 of 2,000 pairs, the 32 with differing lengths included, and a
   deliberately stacked second save makes it fail. — [#381](https://github.com/utyagi24/klarpdf/pull/381)
-- **Flaky test: `test_single_instance.py::test_handoff_opens_window_in_resident_instance`.** Failed
+- ~~**Flaky test: `test_single_instance.py::test_handoff_opens_window_in_resident_instance`.**~~
+  **Closed 2026-11-14 (owner): taken off the 1.0 list, with no failure seen since (§Toward 1.0).**
+  Failed
   once, passed on rerun (timing-sensitive Windows IPC: a race between the resident instance binding its
   socket and the forwarding launch connecting). **Could not reproduce** — 5 isolated runs + several
   full suites all green. **Stakes rose twice at G8** and this is now the most actionable follow-up:
