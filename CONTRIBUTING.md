@@ -192,8 +192,9 @@ checking*, in the table *Which rules, where*. The working rules for writing code
   Use a prefixed branch name: `feat/…`, `fix/…`, `docs/…`.
 - **One PR per logical unit.** Keep changes focused and reviewable.
 - **Keep the tests and checks green.** Run `invoke test` and `invoke lint` before pushing.
-- **Match where things live.** Status → `PROGRESS.md`; design/spec → `PLAN.md`; conventions →
-  `CLAUDE.md`; the README is the shop window (see `CLAUDE.md` §How we work).
+- **Match where things live.** Status → `PROGRESS.md`; one milestone → `docs/milestones/<id>.md`;
+  design across milestones → `PLAN.md`; conventions → `CLAUDE.md`; the README is the shop window
+  (see `CLAUDE.md` §How we work).
 - Open the PR against `main` and fill in the pull-request template.
 
 ## Reporting bugs and requesting features

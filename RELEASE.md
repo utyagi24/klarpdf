@@ -27,7 +27,8 @@ release PR — either way the release mechanics are §3.
 1. Branch from `origin/main`; make the change.
 2. **Test** — `invoke test` (headless suite green).
 3. **Version + docs** (§3 steps 1–2) — bump `klarpdf/version.py` (patch = fix, minor = feature); update the
-   `PROGRESS.md` / `CLAUDE.md` / **`README.md`** status paragraphs.
+   `PROGRESS.md` / `CLAUDE.md` / **`README.md`** status paragraphs, and move the previous release's
+   notes to `docs/releases.md`.
 4. **PR** (change + bump together), review, **merge** to `main`.
 5. **Release** (§3 steps 3–6) — `invoke tag --version X.Y.Z` → CI builds the draft → smoke-test →
    `invoke publish --version X.Y.Z`.
@@ -285,7 +286,8 @@ gh run list --workflow=audit.yml --limit 3      # main must be green before you 
    > file, so the mistake fails loudly in three places rather than reaching a user.
 
 2. **Docs** (same PR as the bump):
-   - `PROGRESS.md` — tick any item this release resolves; add the release line + link.
+   - `PROGRESS.md` — replace the release notes at the top with this release's, and link it. Move
+     the previous release's notes, unchanged, to the top of `docs/releases.md`, under its intro.
    - `CLAUDE.md` — update the **## Status** paragraph.
    - **`README.md` — update the `**Status: vX.Y.Z shipped**` line (with its one-line "New in …"
      summary, current release only — history lives in GitHub Releases), and the **Features**

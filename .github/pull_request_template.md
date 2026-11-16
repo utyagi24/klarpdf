@@ -24,8 +24,9 @@ Collaborators: keep changes focused — one PR per logical unit — branched fro
 - [ ] I read [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md).
 - [ ] The headless test suite passes locally (`invoke test` / `pytest`).
 - [ ] I added or updated tests where it made sense.
-- [ ] I updated the docs where relevant (status → `PROGRESS.md`, design → `PLAN.md`,
-      conventions → `CLAUDE.md`, shop window → `README.md`).
+- [ ] I updated the docs where relevant (status → `PROGRESS.md`, one milestone →
+      `docs/milestones/<id>.md`, design across milestones → `PLAN.md`, conventions → `CLAUDE.md`,
+      shop window → `README.md`).
 - [ ] My contribution is licensed under `AGPL-3.0-or-later` (the project licence).
 
 ## Notes for the reviewer
