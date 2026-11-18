@@ -383,6 +383,13 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **Tell clients that the bridge's tool list never changes?** — not decided (2026-11-17, found
+  while planning M178). Protocol revision 2026-07-28 lets a server say how long a client may keep
+  a list it was sent, such as the tool list (`ttlMs` and `cacheScope`). The bridge says nothing,
+  although its tool list never changes while it runs. The MCP library has a server-wide setting
+  for it (`cache_hints`, in `mcp/server/caching.py`; seen in 2.0.0, not checked in the pinned
+  2.3.0). It does not change what Claude sees, so it is not part of M178. **Open question:**
+  does any client the bridge supports use the hint, and is it worth setting?
 - **Move PLAN.md's old roadmap sections out too?** — not decided (2026-11-13, PR #464). After
   the milestone files moved, `PLAN.md` is still about 226,000 characters. Most of it is design
   still in use: packaging, the bridge's architecture and safety model, and the linting strategy.
