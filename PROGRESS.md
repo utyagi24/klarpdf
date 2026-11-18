@@ -206,6 +206,20 @@ parts, and the box here is ticked on merge. Build in number order, except that M
 
 Done, each with its record in its own file: [M167](docs/milestones/M167.md), [M168](docs/milestones/M168.md), [M169](docs/milestones/M169.md), [M170](docs/milestones/M170.md), [M171](docs/milestones/M171.md), [M172](docs/milestones/M172.md), [M172.1](docs/milestones/M172.md), [M172.2](docs/milestones/M172.md), [M173](docs/milestones/M173.md), [M173.1](docs/milestones/M173.md), [M173.2](docs/milestones/M173.md), [M174](docs/milestones/M174.md), [M174.1](docs/milestones/M174.md), [M174.2](docs/milestones/M174.md), [M174.3](docs/milestones/M174.md).
 
+## Roadmap — the bridge's cost to every session (M178; planned 2026-11-17)
+
+**Planned 2026-11-17**, from the owner's question: how much context does the bridge take in a
+session that never works on a PDF? The measurements, the six parts, what was rejected and the
+owner's open questions are in [`docs/milestones/M178.md`](docs/milestones/M178.md), and are **not
+restated here**. One PR per part. Build in number order.
+
+- [ ] **M178** **The bridge takes less room in sessions that do not use it** — six parts: measure
+  what each client loads and pin the sizes; move "what survives a write" out of the instructions;
+  remove the parameter titles; shorter descriptions; say the cost in the install guides; and, only
+  if a client needs it, a switch to offer fewer tools. *Bridge only.*
+
+Done, each with its record in its own file: none yet.
+
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
 Spec, per-milestone scope, and the binding **design budgets** (UI / lightness / honesty) in
