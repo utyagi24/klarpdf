@@ -167,6 +167,10 @@ should not read that as failure. Nothing is ever written over the input — `out
 
 ## Marking a phrase, not its words
 
+Search for the phrase with `whole_words: true`. With the default, `whole_words: false`, `search`
+treats the query as separate words. "New York" then comes back as one hit for `New` and another for
+`York`, and every other `New` and `York` in the document is a hit too.
+
 Pass the boxes of **one** `search` hit as **one** mark. Marking a phrase word by word gives one mark
 per word, and the words do not touch: `New` ends at x=184.49 while `York` begins at 187.54, a 3 pt
 gap, so the merge leaves two marks where the reader sees one continuous phrase. A hit's own `boxes`
