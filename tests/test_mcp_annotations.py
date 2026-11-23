@@ -361,7 +361,7 @@ def test_a_wrapped_mark_keeps_one_box_per_line(tmp_path):
 
 
 def test_a_phrase_marked_as_the_description_says_is_one_highlight(tmp_path):
-    """The steps the `annotate` description gives for a phrase, run on one that wraps (M179, #469).
+    """The steps the `annotate` description gives for a phrase, run on one that wraps (M178, #469).
 
     "New York" wraps after "New". A search with `whole_words: true` returns one hit with a box on
     each line, and that hit as one mark is one highlight. The default search returns a hit per word,
