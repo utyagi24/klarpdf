@@ -184,15 +184,15 @@ Done, each with its record in its own file: [M138](docs/milestones/M138.md), [M1
   and on M145 (added 2026-09-17), so that it does not print a chart read as a table.
   Design, and why `pymupdf4llm` is rejected, in `PLAN.md` §M142.
 
-## Roadmap — the bridge's text in one folder (M180; planned 2026-11-22)
+## Roadmap — the bridge's text in one folder (M179; planned 2026-11-22)
 
 **Planned 2026-11-22**, from the owner's review of the `annotate` tool's text. Every word the bridge
 shows agents and people about its tools comes from Markdown files in one folder, one file per tool.
-The decisions, the four parts, the order with M178 and what was rejected are in
-[`docs/milestones/M180.md`](docs/milestones/M180.md), and are **not restated here**. One PR per
-part. Build in number order, with M178's first three parts between M180.3 and M180.4.
+The decisions, the four parts, the order with M180 and what was rejected are in
+[`docs/milestones/M179.md`](docs/milestones/M179.md), and are **not restated here**. One PR per
+part. Build in number order, and all of it before M180.
 
-- [ ] **M180** **All the bridge's text in one folder, one file per tool** — four parts: move each
+- [ ] **M179** **All the bridge's text in one folder, one file per tool** — four parts: move each
   tool's description and reference into its file; move the text that is not about one tool; take
   Claude Desktop's text from the files; list each tool's parameters in its file. *Bridge only.*
 
