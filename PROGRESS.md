@@ -215,7 +215,8 @@ restated here**. One PR per part. Build in number order, after M179.
 
 - [ ] **M180** **The bridge takes less room in sessions that do not use it** — six parts: measure
   what each client loads and pin the sizes; move "what survives a write" out of the instructions;
-  remove the parameter titles; shorter descriptions; say the cost in the install guides; and, only
+  remove the parameter titles, and decide whether to drop "or nothing" from optional parameters;
+  shorter descriptions; say the cost in the install guides; and, only
   if a client needs it, a switch to offer fewer tools. *Bridge only.*
 
 Done, each with its record in its own file: none yet.
