@@ -240,7 +240,7 @@ Done, each with its record in its own file: none yet.
 **Planned 2026-11-23**, from the owner's question: how can a caller make several edits without
 leaving a file behind after each one? The design, the owner's decisions and what was rejected are in
 [`docs/milestones/M181.md`](docs/milestones/M181.md), and are **not restated here**. One PR. Build
-after M179 and M180.
+in number order, after M179 and M180. Only M179 must come first.
 
 - [ ] **M181** **Several edits to one document in one call** — a new write tool takes a list of
   steps and writes one file. Each step is a call to `fill_form`, `annotate`, `redact_text`,
