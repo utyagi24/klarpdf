@@ -27,7 +27,7 @@ import os
 import pymupdf as fitz
 import pytest
 
-from klarpdf.mcp_bridge import annotations, redaction
+from klarpdf.mcp_bridge import annotations, queries, redaction
 from klarpdf.model.markup_palette import HIGHLIGHT_COLORS, TEXT_LINE_COLORS
 
 NAME = "Alice Smith"
@@ -358,6 +358,33 @@ def test_a_wrapped_mark_keeps_one_box_per_line(tmp_path):
 
     (found,) = annotations.get_annotations(path)["annotations"]
     assert len(found["boxes"]) == 2
+
+
+def test_a_phrase_marked_as_the_description_says_is_one_highlight(tmp_path):
+    """The steps the `annotate` description gives for a phrase, run on one that wraps (M178, #469).
+
+    "New York" wraps after "New". A search with `whole_words: true` returns one hit with a box on
+    each line, and that hit as one mark is one highlight. The default search returns a hit per word,
+    which is why the description names `whole_words: true`.
+    """
+    path = str(tmp_path / "wrapped_phrase.pdf")
+    out = str(tmp_path / "marked.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_textbox(
+        fitz.Rect(72, 60, 190, 120), "The office is in New York and opens at nine.", fontsize=11
+    )
+    doc.save(path)
+    doc.close()
+
+    assert len(queries.search(path, "New York")) == 2  # "New" and "York", a hit each
+
+    (hit,) = queries.search(path, "New York", whole_words=True)
+    assert len(hit["boxes"]) == 2  # a box on each line
+
+    annotations.annotate(path, [{"page": hit["page"], "boxes": hit["boxes"]}], out)
+    with fitz.open(out) as check:
+        page = check[0]
+        assert len(list(page.annots())) == 1
 
 
 def test_boxes_come_from_quads_not_the_padded_rect(tmp_path):

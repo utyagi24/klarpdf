@@ -1130,16 +1130,16 @@ def create_server(config: Config | None = None) -> MCPServer:
         and defaults to `highlight`; `color` and `note` are optional. A mark may carry `box`
         instead of `boxes`.
 
-        **This tool does not search — you say where.** Locate what you mean with `search` or
-        `extract_text` and pass the boxes; a `search` hit's `boxes` goes in as one mark, which keeps
-        a phrase that wraps a line intact. Pass a phrase as **one** mark, not word by word.
+        This tool does not find text. You give the position of each mark. Get it from `search` with
+        `whole_words: true`, which returns one hit per phrase. Make one mark from each hit, with its
+        `page` and all its `boxes`. A phrase split over two lines has a box for each line. One mark
+        per hit gives one highlight. One mark per word gives one highlight per word.
 
         Boxes measure from the **top-left**, y downward. The PDF format measures from the
         bottom-left, so a box from a raw PDF read needs `y' = page_height - y` or it lands mirrored
         — valid, on the page, no error, wrong line.
 
-        **Pass every mark for the document in one call.** Each call writes a file, so laying
-        highlights and then underlines as two calls leaves an intermediate copy behind.
+        Pass every mark for the document in one call to avoid creating intermediate copies.
 
         A mark **merges** with markup already on the page instead of stacking: same type and colour
         over the same span is absorbed, a different colour takes the span over, and notes are
