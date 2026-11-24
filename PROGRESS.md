@@ -235,6 +235,20 @@ restated here**. One PR per part. Build in number order, after M179.
 
 Done, each with its record in its own file: none yet.
 
+## Roadmap — several edits to one document in one call (M181; planned 2026-11-23)
+
+**Planned 2026-11-23**, from the owner's question: how can a caller make several edits without
+leaving a file behind after each one? The design, the owner's decisions and what was rejected are in
+[`docs/milestones/M181.md`](docs/milestones/M181.md), and are **not restated here**. One PR. Build
+after M179 and M180.
+
+- [ ] **M181** **Several edits to one document in one call** — a new write tool takes a list of
+  steps and writes one file. Each step is a call to `fill_form`, `annotate`, `redact_text`,
+  `redact_regions`, `set_outline`, `rotate` or `flatten`. No step may delete or reorder pages.
+  *Bridge only.*
+
+Done, each with its record in its own file: none yet.
+
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
 Spec, per-milestone scope, and the binding **design budgets** (UI / lightness / honesty) in
