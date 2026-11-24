@@ -206,6 +206,21 @@ parts, and the box here is ticked on merge. Build in number order, except that M
 
 Done, each with its record in its own file: [M167](docs/milestones/M167.md), [M168](docs/milestones/M168.md), [M169](docs/milestones/M169.md), [M170](docs/milestones/M170.md), [M171](docs/milestones/M171.md), [M172](docs/milestones/M172.md), [M172.1](docs/milestones/M172.md), [M172.2](docs/milestones/M172.md), [M173](docs/milestones/M173.md), [M173.1](docs/milestones/M173.md), [M173.2](docs/milestones/M173.md), [M174](docs/milestones/M174.md), [M174.1](docs/milestones/M174.md), [M174.2](docs/milestones/M174.md), [M174.3](docs/milestones/M174.md).
 
+## Roadmap — the bridge's cost to every session (M180; planned 2026-11-17)
+
+**Planned 2026-11-17**, from the owner's question: how much context does the bridge take in a
+session that never works on a PDF? The measurements, the six parts, what was rejected and the
+owner's open questions are in [`docs/milestones/M180.md`](docs/milestones/M180.md), and are **not
+restated here**. One PR per part. Build in number order, after M179.
+
+- [ ] **M180** **The bridge takes less room in sessions that do not use it** — six parts: measure
+  what each client loads and pin the sizes; move "what survives a write" out of the instructions;
+  remove the parameter titles, and decide whether to drop "or nothing" from optional parameters;
+  shorter descriptions; say the cost in the install guides; and, only
+  if a client needs it, a switch to offer fewer tools. *Bridge only.*
+
+Done, each with its record in its own file: none yet.
+
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
 Spec, per-milestone scope, and the binding **design budgets** (UI / lightness / honesty) in
@@ -369,6 +384,13 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **Tell clients that the bridge's tool list never changes?** — not decided (2026-11-17, found
+  while planning M180). Protocol revision 2026-07-28 lets a server say how long a client may keep
+  a list it was sent, such as the tool list (`ttlMs` and `cacheScope`). The bridge says nothing,
+  although its tool list never changes while it runs. The MCP library has a server-wide setting
+  for it (`cache_hints`, in `mcp/server/caching.py`; seen in 2.0.0, not checked in the pinned
+  2.3.0). It does not change what Claude sees, so it is not part of M180. **Open question:**
+  does any client the bridge supports use the hint, and is it worth setting?
 - **Move PLAN.md's old roadmap sections out too?** — not decided (2026-11-13, PR #464). After
   the milestone files moved, `PLAN.md` is still about 226,000 characters. Most of it is design
   still in use: packaging, the bridge's architecture and safety model, and the linting strategy.
