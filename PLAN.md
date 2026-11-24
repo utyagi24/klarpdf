@@ -2519,7 +2519,8 @@ Captured but not yet scheduled:
   split-button over the toggle, and land it inside M83 so the zoom cluster changes only once.
 - **Consciously rejected (owner, 2026-07 decision session)** — recorded so they aren't relitigated:
   **OCR** (needs a bundled Tesseract — breaks the pinned offline ship-set; if ever revisited, it's
-  an optional add-on download, never a core dependency); **cryptographic digital signatures**
+  an optional add-on download, never a core dependency) — the reason was re-examined on
+  2026-11-24, in `PROGRESS.md` §Open follow-ups; **cryptographic digital signatures**
   (crypto deps + certificate UX; M63's image signature covers the everyday tier) — **reopened by
   the owner on 2026-09-26** for both the app and the bridge, as
   [#404](https://github.com/utyagi24/klarpdf/issues/404). Checking signatures

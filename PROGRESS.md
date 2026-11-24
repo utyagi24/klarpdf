@@ -412,6 +412,36 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **Reopen OCR, for the app and the bridge?** — not decided (2026-11-24, asked by the owner).
+  `PLAN.md` §Future enhancements rejected OCR in July 2026 because it "needs a bundled
+  Tesseract". That reason no longer holds as written. PyMuPDF 1.27.2.3, which we ship, has
+  Tesseract's engine built in (`Page.get_textpage_ocr`). It needs only a language file. English
+  comes in three versions: fast (4.1 MB), standard (23.5 MB) and best (15.4 MB).
+  **Measured** on 168 pages from 91 test documents that have text. Each page's OCR was compared
+  with the words its text layer draws visibly.
+  * At 300 dpi, 91.7% of words came out exact with all three files. 100 of the 168 pages scored
+    95% or better. Median time a page, seven pages at once on 8 cores: fast 3.7 s, standard
+    8.5 s, best 19.3 s.
+  * At PyMuPDF's default of 72 dpi, 17.5% came out exact. A caller must pass 300.
+  * At 150 dpi, 88.6% came out exact. Text under 7 pt fell from 88% to 74%.
+  * A simulated poor scan (200 dpi, grey, tilted 1.5°, JPEG quality 25) found 89.5% of the
+    words. The clean page found 91.9%.
+  * The corpus's one real scan, checked by eye on its top block: the standard file read the
+    customer number, the town and all three phone numbers correctly. The file's own OCR got the
+    customer number, the town and two of the phone numbers wrong. Both garbled the vehicle
+    number.
+
+  Failures seen on the worst pages: a page displayed sideways read as junk, because nothing
+  detects which way up a page is. A table with coloured rows gave 13 of 331 words, and 253 in the
+  simulated poor scan, which is grey. Shaded table headers were skipped. Photos and charts gave junk words. Two
+  low scores were the answer key's fault, not the OCR's: titles set with spaces between the
+  letters, and a text layer whose letters are out of order.
+  **Gotcha:** `Pixmap.pdfocr_tobytes` returns no words and no error for a grey picture. Convert
+  it to RGB first.
+  **Open question:** reopen OCR, and in which form: a searchable copy, OCR that a person or an
+  agent corrects word by word, or both. Any design must say how a misread word affects
+  `redact_text` and the check after it, and whether hidden text a caller writes is marked as
+  such.
 - **Tell clients that the bridge's tool list never changes?** — not decided (2026-11-17, found
   while planning M180). Protocol revision 2026-07-28 lets a server say how long a client may keep
   a list it was sent, such as the tool list (`ttlMs` and `cacheScope`). The bridge says nothing,
