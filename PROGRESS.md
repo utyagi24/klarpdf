@@ -268,6 +268,21 @@ PR per milestone. Build in number order.
 
 Done, each with its record in its own file: none yet.
 
+## Roadmap — files as tabs in one window (M186; planned 2026-11-25)
+
+**Planned 2026-11-25**, from the owner's request to open several files in one window. The design,
+the measurements, the owner's decisions and the options not chosen are in
+[`docs/milestones/M186.md`](docs/milestones/M186.md), and are **not restated here**. Four parts, one
+PR each, built in order.
+
+- [ ] **M186** **Files as tabs in one window** — four parts: an outer window around today's window,
+  with nothing changed on screen; KlarPDF's own title bar, with the file's tab in place of its name;
+  several tabs in one window, with a double-click in File Explorer opening a new tab in the front
+  window; and pulling a tab out into its own window and putting it back. Each tab keeps its own
+  menus and toolbars. *App only.*
+
+Done, each with its record in its own file: none yet.
+
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
 Spec, per-milestone scope, and the binding **design budgets** (UI / lightness / honesty) in

@@ -25,9 +25,12 @@ their **default PDF viewer** (the ~90% use) and also do the occasional **splice/
 Hard requirements gathered from the user:
 
 - **Default Windows PDF viewer**, full Preview-like viewing experience.
-- **Single instance / one window per document** — re-clicking an already-open file must
-  **focus the existing window**, never spawn a duplicate (their current pain: duplicate
-  browser tabs).
+- **Single instance, no duplicate documents** — re-clicking an already-open file must
+  **bring it to the front**, never spawn a duplicate (their current pain: duplicate
+  browser tabs). Files open as tabs in one window. A double-click in File Explorer opens a
+  new tab in the front window, and a tab can be pulled out into its own window and put back
+  (owner, 2026-11-25; built in [M186](docs/milestones/M186.md)). Until M186.3 ships, each
+  file opens in its own window.
 - **Drag-and-drop** page reorder **and** page-level **cut/copy/paste** between documents.
 - Merge/splice (append + insert at a position), reorder, delete, move/copy pages, Save/Save As.
 - **Undo/redo** for all page edits (Ctrl+Z / Ctrl+Y).
@@ -180,7 +183,9 @@ launcher.py "%1"` when running from source in dev):
 3. **Fails** → become the server (`removeServer` to clear a stale pipe, then `listen`), open
    our own document window, and keep a `dict[normalized_path -> window]`.
 4. On a received path: if it's in the dict → **raise/activate** that window (no duplicate);
-   else open a new window.
+   else open a new window. M186.3 changes this: the file opens as a new tab in the front window,
+   and an open file's window comes to the front with that tab forward
+   ([`docs/milestones/M186.md`](docs/milestones/M186.md)).
 
 - **Identity key:** `os.path.normcase(os.path.normpath(os.path.realpath(path)))`
   (case-insensitive on Windows, resolves symlinks/`..`).
