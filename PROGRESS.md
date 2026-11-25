@@ -249,6 +249,26 @@ in number order, after M179 and M180. Only M179 must come first.
 
 Done, each with its record in its own file: none yet.
 
+## Roadmap — OCR, and correcting what it reads (M182–M185; planned 2026-11-24)
+
+**Planned 2026-11-24**, from the owner's question: should the app and the bridge read scanned
+pages? The measurements, the owner's decisions and the questions left for each milestone are in
+[`docs/milestones/M182-M185.md`](docs/milestones/M182-M185.md), and are **not restated here**. One
+PR per milestone. Build in number order, after M179, M180 and M181, so the new bridge tools are
+written in M179's one-file-per-tool layout from the start.
+
+- [ ] **M182** **Read a scan's words** — the engine reads a page's words with OCR, each with its
+  box, and a bridge tool returns them without writing a file. While the English file is not
+  chosen, the caller picks one from a folder. *Core and bridge.*
+- [ ] **M183** **Make a searchable copy, with corrections** — write the words as hidden text to a
+  new file, from OCR or from a caller's corrections. *Core and bridge.*
+- [ ] **M184** **"Make Searchable" in the app** — read the pages that have no text, with progress
+  and a cancel button. *App.*
+- [ ] **M185** **Correct words in the app** — retype a word, add one the OCR missed, delete junk.
+  *App.*
+
+Done, each with its record in its own file: none yet.
+
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
 Spec, per-milestone scope, and the binding **design budgets** (UI / lightness / honesty) in
@@ -412,36 +432,8 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
-- **Reopen OCR, for the app and the bridge?** — not decided (2026-11-24, asked by the owner).
-  `PLAN.md` §Future enhancements rejected OCR in July 2026 because it "needs a bundled
-  Tesseract". That reason no longer holds as written. PyMuPDF 1.27.2.3, which we ship, has
-  Tesseract's engine built in (`Page.get_textpage_ocr`). It needs only a language file. English
-  comes in three versions: fast (4.1 MB), standard (23.5 MB) and best (15.4 MB).
-  **Measured** on 168 pages from 91 test documents that have text. Each page's OCR was compared
-  with the words its text layer draws visibly.
-  * At 300 dpi, 91.7% of words came out exact with all three files. 100 of the 168 pages scored
-    95% or better. Median time a page, seven pages at once on 8 cores: fast 3.7 s, standard
-    8.5 s, best 19.3 s.
-  * At PyMuPDF's default of 72 dpi, 17.5% came out exact. A caller must pass 300.
-  * At 150 dpi, 88.6% came out exact. Text under 7 pt fell from 88% to 74%.
-  * A simulated poor scan (200 dpi, grey, tilted 1.5°, JPEG quality 25) found 89.5% of the
-    words. The clean page found 91.9%.
-  * The corpus's one real scan, checked by eye on its top block: the standard file read the
-    customer number, the town and all three phone numbers correctly. The file's own OCR got the
-    customer number, the town and two of the phone numbers wrong. Both garbled the vehicle
-    number.
-
-  Failures seen on the worst pages: a page displayed sideways read as junk, because nothing
-  detects which way up a page is. A table with coloured rows gave 13 of 331 words, and 253 in the
-  simulated poor scan, which is grey. Shaded table headers were skipped. Photos and charts gave junk words. Two
-  low scores were the answer key's fault, not the OCR's: titles set with spaces between the
-  letters, and a text layer whose letters are out of order.
-  **Gotcha:** `Pixmap.pdfocr_tobytes` returns no words and no error for a grey picture. Convert
-  it to RGB first.
-  **Open question:** reopen OCR, and in which form: a searchable copy, OCR that a person or an
-  agent corrects word by word, or both. Any design must say how a misread word affects
-  `redact_text` and the check after it, and whether hidden text a caller writes is marked as
-  such.
+- **Reopen OCR, for the app and the bridge?** — graduated to **M182–M185** (owner, 2026-11-24).
+  The measurements are in [`docs/milestones/M182-M185.md`](docs/milestones/M182-M185.md).
 - **Tell clients that the bridge's tool list never changes?** — not decided (2026-11-17, found
   while planning M180). Protocol revision 2026-07-28 lets a server say how long a client may keep
   a list it was sent, such as the tool list (`ttlMs` and `cacheScope`). The bridge says nothing,
