@@ -254,8 +254,7 @@ Done, each with its record in its own file: none yet.
 **Planned 2026-11-24**, from the owner's question: should the app and the bridge read scanned
 pages? The measurements, the owner's decisions and the questions left for each milestone are in
 [`docs/milestones/M182-M185.md`](docs/milestones/M182-M185.md), and are **not restated here**. One
-PR per milestone. Build in number order, after M179, M180 and M181, so the new bridge tools are
-written in M179's one-file-per-tool layout from the start.
+PR per milestone. Build in number order.
 
 - [ ] **M182** **Read a scan's words** — the engine reads a page's words with OCR, each with its
   box, and a bridge tool returns them without writing a file. While the English file is not
