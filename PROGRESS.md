@@ -283,6 +283,20 @@ PR each, built in order.
 
 Done, each with its record in its own file: none yet.
 
+## Roadmap — the bridge offers skills, as a trial (M187; planned 2026-11-25)
+
+**Planned 2026-11-25**, from the owner's question: what is "Skills over MCP", and could it help the
+bridge? What a skill is, which clients support it, the four parts, the order and what was rejected
+are in [`docs/milestones/M187.md`](docs/milestones/M187.md), and are **not restated here**. One PR
+per part. M187.1 waits for a release of the MCP library with skills support. M187.2 needs M179.
+
+- [ ] **M187** **The bridge offers skills, as a trial** — four parts: update the MCP library to
+  the first release with skills support; serve one skill, on reading a long PDF without wasting
+  steps; try it by hand in Claude Code and record whether Claude loads and follows it; and, only if
+  it does, a second skill on making several edits in one call. *Bridge only.*
+
+Done, each with its record in its own file: none yet.
+
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
 Spec, per-milestone scope, and the binding **design budgets** (UI / lightness / honesty) in
