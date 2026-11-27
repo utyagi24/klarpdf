@@ -297,6 +297,20 @@ per part. M187.1 waits for a release of the MCP library with skills support. M18
 
 Done, each with its record in its own file: none yet.
 
+## Roadmap — the ink colour of a signature image (M188; planned 2026-11-27)
+
+**Planned 2026-11-27**, from the owner's request to change the ink colour of a signature image after
+removing its background. The design, the measurements, the owner's decisions and the options not
+chosen are in [`docs/milestones/M188.md`](docs/milestones/M188.md), and are **not restated here**.
+One PR.
+
+- [ ] **M188** **Change the ink colour of a signature image** — the Signature / Image window gets
+  an Ink colour row: Original, Black, Blue and Other…. The strokes keep their light and dark parts
+  in the new colour, and the colour is remembered for each image. *App, with a change to the
+  engine's image drawing that the bridge does not reach.*
+
+Done, each with its record in its own file: none yet.
+
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
 Spec, per-milestone scope, and the binding **design budgets** (UI / lightness / honesty) in
