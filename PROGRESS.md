@@ -304,12 +304,7 @@ removing its background. The design, the measurements, the owner's decisions and
 chosen are in [`docs/milestones/M188.md`](docs/milestones/M188.md), and are **not restated here**.
 One PR.
 
-- [ ] **M188** **Change the ink colour of a signature image** — the Signature / Image window gets
-  an Ink colour row: Original, Black, Blue and Other…. The strokes keep their light and dark parts
-  in the new colour, and the colour is remembered for each image. *App, with a change to the
-  engine's image drawing that the bridge does not reach.*
-
-Done, each with its record in its own file: none yet.
+Done, each with its record in its own file: [M188](docs/milestones/M188.md).
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 

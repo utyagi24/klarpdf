@@ -249,7 +249,8 @@ def test_transparency_settings_ride_with_the_path(tmp_path, photo_sig):
     settings = Settings(tmp_path / "vs.json")
     settings.add_recent_signature(photo_sig, white_to_alpha=True, white_threshold=0.7)
     assert settings.signature_settings(photo_sig) == {"white_to_alpha": True,
-                                                      "white_threshold": 0.7}
+                                                      "white_threshold": 0.7,
+                                                      "ink_color": None}
     settings.add_recent_signature(photo_sig)              # re-placing it keeps what it was tuned to
     assert settings.signature_settings(photo_sig)["white_threshold"] == 0.7
     import json
@@ -485,3 +486,359 @@ def test_the_removal_slider_keeps_the_old_default(win, photo_sig):
         assert dialog.image_stamp((0, 0, 60, 30)).white_threshold == pytest.approx(0.85)
     finally:
         dialog.deleteLater()
+
+
+# ---- ink colour (M188) ---------------------------------------------------------------
+#
+# "Same pen, new ink" (owner, 2026-11-27): the darkest ink becomes exactly the colour picked, fainter
+# ink a lighter shade of it, and white stays white. The engine tests read what a reader sees: the
+# image drawn over a page, one image pixel to one page pixel.
+
+BLUE = (0.13, 0.35, 0.85)            # the app's Blue, which the window offers
+BLUE_PIXEL = (33, 89, 217)
+BALLPOINT = (30, 51, 153)            # blue ballpoint ink, as a photo shows it
+PAPER = (245, 244, 240)              # paper in a photo: off-white, not white
+WHITE, BLACK = (255, 255, 255), (0, 0, 0)
+_SQUARE = 10
+
+
+def _squares(tmp_path, name: str, colors: list[tuple[int, int, int]],
+             alphas: list[int] | None = None, grey: bool = False) -> str:
+    """A PNG of 10 x 10 squares side by side, one per colour. A test reads the middle of a square, so
+    no blending at a square's edge reaches it. ``alphas`` makes a transparent PNG, saved as PyMuPDF
+    saves any image with transparency. ``grey`` makes a greyscale scan, from each colour's red."""
+    if grey:
+        row = b"".join(bytes([c[0]]) * _SQUARE for c in colors)
+        pix = fitz.Pixmap(fitz.csGRAY, _SQUARE * len(colors), _SQUARE, row * _SQUARE, 0)
+    else:
+        row = b"".join(bytes(c) * _SQUARE for c in colors)
+        pix = fitz.Pixmap(fitz.csRGB, _SQUARE * len(colors), _SQUARE, row * _SQUARE, 0)
+    if alphas is not None:
+        pix = fitz.Pixmap(pix, 1)
+        pix.set_alpha(b"".join(bytes([a]) * _SQUARE for a in alphas) * _SQUARE, premultiply=1)
+    path = str(tmp_path / name)
+    pix.save(path)
+    return path
+
+
+def _seen(path: str, count: int, background=(1, 1, 1), **fields) -> list[tuple[int, ...]]:
+    """The colour a reader sees in the middle of each of ``count`` squares, with the image drawn over
+    a page filled with ``background``."""
+    art = render_mark_document(ImageStamp((0, 0, _SQUARE * count, _SQUARE), path, **fields))
+    doc = fitz.open()
+    try:
+        page = doc.new_page(width=_SQUARE * count, height=_SQUARE)
+        page.draw_rect(page.rect, color=None, fill=background)
+        page.show_pdf_page(page.rect, art, 0)
+        pix = page.get_pixmap(dpi=72)
+        return [pix.pixel(_SQUARE * i + _SQUARE // 2, _SQUARE // 2) for i in range(count)]
+    finally:
+        art.close()
+        doc.close()
+
+
+def _near(seen: tuple[int, ...], expected: tuple[int, ...], slack: int = 2) -> bool:
+    return all(abs(a - b) <= slack for a, b in zip(seen, expected, strict=True))
+
+
+def test_the_darkest_ink_becomes_the_colour_picked(tmp_path):
+    """A photo's darkest ink is dark grey or dark blue, never black. Without the stretch it would come
+    out paler than the colour picked: `(84, 128, 226)` for dark grey ink, not the app's Blue."""
+    photo = _squares(tmp_path, "photo.png", [BALLPOINT, PAPER])
+    ink, _paper = _seen(photo, 2, ink_color=BLUE)
+    assert _near(ink, BLUE_PIXEL, slack=1)
+
+
+def test_blue_ink_recoloured_to_black_comes_out_black(tmp_path):
+    """PyMuPDF's `tint_with` maps red, green and blue separately, and gave this ink back unchanged.
+    The image is made grey first, so the colour picked is the colour seen."""
+    photo = _squares(tmp_path, "photo.png", [BALLPOINT, PAPER])
+    ink, _paper = _seen(photo, 2, ink_color=(0.0, 0.0, 0.0))
+    assert _near(ink, BLACK, slack=1)
+
+
+def test_fainter_ink_becomes_a_lighter_shade_and_white_stays_white(tmp_path):
+    """Owner decision 1: the pen's light and dark are kept, not flattened to one even colour."""
+    pen = _squares(tmp_path, "pen.png", [(40, 40, 40), (150, 150, 150), WHITE])
+    dark, faint, white = _seen(pen, 3, ink_color=BLUE)
+    assert _near(dark, BLUE_PIXEL, slack=1)
+    assert all(f > d for f, d in zip(faint, dark, strict=True))   # lighter in every channel…
+    assert faint[2] > faint[1] > faint[0]                          # …and still blue
+    assert white == WHITE                                          # the paper is kept, and white
+
+
+def test_the_paper_stays_see_through_when_the_background_is_removed(tmp_path):
+    photo = _squares(tmp_path, "photo.png", [BALLPOINT, PAPER])
+    assert _seen(photo, 2, background=(0, 0, 0), white_to_alpha=True, ink_color=BLUE)[1] == BLACK
+    assert _seen(photo, 2, background=(1, 1, 1), white_to_alpha=True, ink_color=BLUE)[1] == WHITE
+
+
+def test_a_pale_ink_colour_is_not_taken_for_paper(tmp_path):
+    """The background is removed by the image's own light and dark. This yellow is lighter than the
+    removal's cutoff, so a mask made from the recoloured image would remove the whole signature."""
+    yellow = (1.0, 0.92, 0.3)
+    photo = _squares(tmp_path, "photo.png", [BALLPOINT, PAPER])
+    ink, paper = _seen(photo, 2, background=(0, 0, 0), white_to_alpha=True, ink_color=yellow)
+    assert _near(ink, (255, 235, 77), slack=1)
+    assert paper == BLACK
+
+
+def test_a_greyscale_scan_takes_the_ink_colour(tmp_path):
+    """A greyscale image cannot hold a colour, so it is made a colour image first."""
+    scan = _squares(tmp_path, "scan.png", [(40, 40, 40), WHITE], grey=True)
+    assert fitz.Pixmap(scan).n == 1                                # precondition: it is greyscale
+    ink, white = _seen(scan, 2, ink_color=BLUE)
+    assert _near(ink, BLUE_PIXEL, slack=1)
+    assert white == WHITE
+
+
+def test_a_transparent_png_keeps_its_transparency(tmp_path):
+    """The middle square is hidden by the PNG's own transparency, and it is dark: the background
+    removal alone would show it. Its author removed it, so it stays hidden in the ink colour too.
+    The image has visible ink, so the recolour runs (`alpha_sig` has none to recolour)."""
+    png = _squares(tmp_path, "cut.png", [BALLPOINT, (10, 10, 10), WHITE], alphas=[255, 0, 255])
+    loaded = fitz.Pixmap(png)
+    assert loaded.pixel(15, 5) == (0, 0, 0, 0)          # precondition: hidden, and reads as black
+    for removed in (False, True):
+        for background, hidden in (((1, 1, 1), WHITE), ((0, 0, 0), BLACK)):
+            ink, middle, _white = _seen(png, 3, background=background, white_to_alpha=removed,
+                                        ink_color=BLUE)
+            assert _near(ink, BLUE_PIXEL, slack=1)
+            assert middle == hidden
+
+
+def test_the_soft_edge_of_a_stroke_keeps_the_ink_colour(tmp_path):
+    """A stroke's edge is partly see-through. MuPDF reads an image's colours as already multiplied by
+    their alpha; colours left unmultiplied drew this half-see-through blue as teal, (159, 215, 215)
+    over white."""
+    edge = _squares(tmp_path, "edge.png", [BLACK, BLACK, BLACK], alphas=[255, 128, 0])
+    over_white = _seen(edge, 3, background=(1, 1, 1), ink_color=BLUE)
+    over_black = _seen(edge, 3, background=(0, 0, 0), ink_color=BLUE)
+    half = 128 / 255
+    assert _near(over_white[0], BLUE_PIXEL, slack=1)
+    assert _near(over_white[1], tuple(round(c * half + 255 * (1 - half)) for c in BLUE_PIXEL), slack=3)
+    assert _near(over_black[1], tuple(round(c * half) for c in BLUE_PIXEL), slack=3)
+    assert over_white[2] == WHITE and over_black[2] == BLACK
+
+
+def test_the_soft_edge_of_a_removed_background_keeps_the_ink_colour(tmp_path):
+    """The light grey between ink and paper is partly removed. Over black it must read as its shade of
+    blue at its alpha, not the neutral (107, 107, 107) an unmultiplied colour gave."""
+    from klarpdf.model.content_marks import _white_key_table
+
+    photo = _squares(tmp_path, "photo.png", [BLACK, (200, 200, 200), (250, 250, 250)])
+    alpha = _white_key_table(0.85)[200] / 255
+    assert 0 < alpha < 1                                   # precondition: 200 is on the soft edge
+    shade = [c + (255 - c) * 200 / 255 for c in BLUE_PIXEL]   # black ink is the darkest: no stretch
+    _ink, edge, paper = _seen(photo, 3, background=(0, 0, 0), white_to_alpha=True, ink_color=BLUE)
+    assert _near(edge, tuple(round(c * alpha) for c in shade), slack=3)
+    assert paper == BLACK
+
+
+def test_a_stroke_with_soft_edges_still_takes_the_full_colour(tmp_path):
+    """A transparent PNG's soft edges come back from PyMuPDF darker than the stroke (multiplied by
+    their alpha). They must not count as the darkest ink, or this grey stroke would come out pale."""
+    stroke = _squares(tmp_path, "stroke.png", [(100, 100, 100)] * 3, alphas=[255, 40, 0])
+    assert _near(_seen(stroke, 3, ink_color=BLUE)[0], BLUE_PIXEL, slack=1)
+
+
+def test_original_keeps_the_image_colours(tmp_path):
+    photo = _squares(tmp_path, "photo.png", [BALLPOINT, PAPER])
+    assert ImageStamp((0, 0, 1, 1), photo).ink_color is None
+    assert _near(_seen(photo, 2)[0], BALLPOINT, slack=1)
+    assert _near(_seen(photo, 2, white_to_alpha=True)[0], BALLPOINT, slack=1)
+
+
+def test_an_image_with_no_ink_draws_as_it_is(tmp_path):
+    """With nothing darker than white there is no ink to recolour; white must not become the ink."""
+    blank = _squares(tmp_path, "blank.png", [WHITE, WHITE])
+    assert _seen(blank, 2, ink_color=BLUE) == [WHITE, WHITE]
+    assert _seen(blank, 2, background=(0, 0, 0), white_to_alpha=True, ink_color=BLUE) == [BLACK, BLACK]
+
+
+def test_a_huge_image_recolours_without_stalling(tmp_path):
+    """The twin of `test_a_huge_image_keys_without_stalling`, with the colour on: every step runs in
+    C, so a ~4 MP image recolours, background removed, in the same time limit."""
+    import time
+
+    path = str(tmp_path / "big.png")
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 2000, 2000), False)
+    pix.clear_with(250)
+    pix.set_rect(fitz.IRect(100, 900, 400, 1000), BALLPOINT)       # some ink to recolour
+    pix.save(path)
+
+    started = time.perf_counter()
+    art = render_mark_document(ImageStamp((0, 0, 200, 200), path, white_to_alpha=True, ink_color=BLUE))
+    art.close()
+    assert time.perf_counter() - started < 3.0
+
+
+def test_the_ink_colour_rides_with_the_path(tmp_path, photo_sig):
+    import json
+
+    settings = Settings(tmp_path / "vs.json")
+    settings.add_recent_signature(photo_sig, white_to_alpha=True, white_threshold=0.7, ink_color=BLUE)
+    assert settings.signature_settings(photo_sig)["ink_color"] == BLUE
+    stored = json.loads((tmp_path / "vs.json").read_text(encoding="utf-8"))
+    assert list(stored["preferences"]["signature_settings"].values())[0]["ink_color"] == list(BLUE)
+    settings.add_recent_signature(photo_sig, white_to_alpha=True, white_threshold=0.7, ink_color=None)
+    assert settings.signature_settings(photo_sig)["ink_color"] is None    # back to Original
+
+
+def test_an_image_remembered_before_m188_places_in_its_own_colours(tmp_path, photo_sig):
+    from klarpdf.util.paths import normalize_path
+
+    settings = Settings(tmp_path / "vs.json")
+    settings.add_recent_signature(photo_sig)
+    settings.set_pref("signature_settings",
+                      {normalize_path(photo_sig): {"white_to_alpha": True, "white_threshold": 0.7}})
+    assert settings.signature_settings(photo_sig) == {"white_to_alpha": True, "white_threshold": 0.7,
+                                                      "ink_color": None}
+
+
+@pytest.mark.parametrize("broken", ["blue", [0.1, 0.2], [0.1, 0.2, 2.0], [True, 0, 0], None, 7])
+def test_a_broken_ink_colour_reads_as_the_images_own_colours(tmp_path, photo_sig, broken):
+    from klarpdf.util.paths import normalize_path
+
+    settings = Settings(tmp_path / "vs.json")
+    settings.add_recent_signature(photo_sig)
+    settings.set_pref("signature_settings", {normalize_path(photo_sig): {
+        "white_to_alpha": True, "white_threshold": 0.7, "ink_color": broken}})
+    assert settings.signature_settings(photo_sig)["ink_color"] is None
+
+
+def test_the_window_offers_original_black_blue_and_other(win, photo_sig):
+    """Owner decision 2. The row is never greyed out: with the paper kept, white stays white, so a
+    colour works without removing the background."""
+    from ui.signature_dialog import SignatureDialog
+
+    dialog = SignatureDialog(win, [photo_sig])
+    try:
+        buttons = dialog.ink_group.buttons()
+        assert [b.text() for b in buttons] == ["Original", "Black", "Blue", "Other…"]
+        assert dialog.ink_original.isChecked() is True
+        assert dialog.image_stamp().ink_color is None
+        assert dialog.transparent.isChecked() is False
+        assert all(b.isEnabled() for b in buttons)
+    finally:
+        dialog.deleteLater()
+
+
+def test_the_windows_blue_is_the_apps_blue():
+    """A colour's name means one colour in the app."""
+    from ui.signature_dialog import _INK_CHOICES
+    from viewer.markup_style import _STROKE_PRESETS
+
+    assert dict(_INK_CHOICES)["Blue"] == dict(_STROKE_PRESETS)["Blue"] == BLUE
+
+
+def test_choosing_blue_redraws_the_preview(win, photo_sig):
+    from ui.signature_dialog import SignatureDialog
+
+    dialog = SignatureDialog(win, [photo_sig])
+    try:
+        before = dialog.preview.pixmap().toImage()
+        dialog.ink_presets["Blue"].click()
+        assert dialog.ink_presets["Blue"].isChecked() is True
+        assert dialog.image_stamp().ink_color == BLUE
+        assert dialog.preview.pixmap().toImage() != before
+        dialog.ink_original.click()
+        assert dialog.image_stamp().ink_color is None
+        assert dialog.preview.pixmap().toImage() == before
+    finally:
+        dialog.deleteLater()
+
+
+def test_other_opens_the_picker_and_keeps_its_colour(win, photo_sig, monkeypatch):
+    """The picker is modal and cannot run offscreen, so it is replaced: it answers with purple."""
+    from PySide6.QtGui import QColor
+
+    from ui import signature_dialog
+
+    asked = []
+
+    def picker(start, parent, title):
+        asked.append(title)
+        return QColor.fromRgbF(0.5, 0.1, 0.6)
+
+    monkeypatch.setattr(signature_dialog.QColorDialog, "getColor", staticmethod(picker))
+    dialog = signature_dialog.SignatureDialog(win, [photo_sig])
+    try:
+        dialog.ink_other.click()
+        assert asked == ["Ink colour"]
+        assert dialog.ink_other.isChecked() is True
+        assert dialog.image_stamp().ink_color == pytest.approx((0.5, 0.1, 0.6), abs=0.01)
+        assert dialog.ink_other.icon().isNull() is False             # the colour shows on it
+    finally:
+        dialog.deleteLater()
+
+
+def test_cancelling_the_picker_changes_nothing(win, photo_sig, monkeypatch):
+    from PySide6.QtGui import QColor
+
+    from ui import signature_dialog
+
+    monkeypatch.setattr(signature_dialog.QColorDialog, "getColor",
+                        staticmethod(lambda start, parent, title: QColor()))   # Cancel
+    dialog = signature_dialog.SignatureDialog(win, [photo_sig])
+    try:
+        dialog.ink_presets["Blue"].click()
+        dialog.ink_other.click()
+        assert dialog.ink_presets["Blue"].isChecked() is True
+        assert dialog.ink_other.isChecked() is False
+        assert dialog.image_stamp().ink_color == BLUE
+    finally:
+        dialog.deleteLater()
+
+
+def test_the_window_reopens_an_image_in_its_colour(win, photo_sig, tmp_path):
+    """A remembered colour that is one of the choices presses its button; any other shows on Other…."""
+    from ui.signature_dialog import SignatureDialog
+
+    other = _squares(tmp_path, "other.png", [BALLPOINT, PAPER])
+    purple = (0.5, 0.1, 0.6)
+    remembered = {photo_sig: {"white_to_alpha": True, "white_threshold": 0.70, "ink_color": BLUE},
+                  other: {"white_to_alpha": True, "white_threshold": 0.70, "ink_color": purple}}
+    dialog = SignatureDialog(win, [photo_sig, other], remembered)
+    try:
+        assert dialog.ink_presets["Blue"].isChecked() is True
+        assert dialog.image_stamp().ink_color == BLUE
+        dialog.recent.setCurrentRow(1)
+        assert dialog.ink_other.isChecked() is True
+        assert dialog.image_stamp().ink_color == purple
+    finally:
+        dialog.deleteLater()
+
+
+def _draw_armed_stamp(win) -> ImageStamp:
+    overlay = win.view.annotations
+    overlay.begin_draw(ArmedTool.STAMP, _scene(win, 100, 300))
+    overlay.update_draw(_scene(win, 300, 360), Qt.KeyboardModifier.NoModifier)
+    overlay.finish_draw()
+    return [a for a in win.vdoc.page_annotations(0) if isinstance(a, ImageStamp)][0]
+
+
+def test_the_menu_places_it_in_its_colour(win, photo_sig):
+    win._settings.add_recent_signature(photo_sig, white_to_alpha=True, white_threshold=0.70,
+                                       ink_color=BLUE)
+    win._rebuild_signature_menu()
+    win._place_recent_signature(photo_sig)
+    assert _draw_armed_stamp(win).ink_color == BLUE
+
+
+def test_placing_from_the_window_remembers_its_colour(win, photo_sig, monkeypatch):
+    """Tools ▸ Signature / Image…, with Blue chosen and OK pressed: the mark is blue, and so is the
+    next placement from the menu."""
+    from PySide6.QtWidgets import QDialog
+
+    from ui import signature_dialog
+
+    def choose_blue_and_accept(dialog):
+        dialog.ink_presets["Blue"].click()
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(signature_dialog.SignatureDialog, "exec", choose_blue_and_accept)
+    win._settings.add_recent_signature(photo_sig)       # the window opens on it
+    win._add_image_stamp()
+    assert _draw_armed_stamp(win).ink_color == BLUE
+    assert win._settings.signature_settings(photo_sig)["ink_color"] == BLUE
