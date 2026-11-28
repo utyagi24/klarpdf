@@ -50,7 +50,12 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
 )
 
-from klarpdf.model.content_marks import CONTENT_MARK_TYPES, ContentMark, render_mark_document
+from klarpdf.model.content_marks import (
+    CONTENT_MARK_TYPES,
+    ContentMark,
+    placed_at_origin,
+    render_mark_document,
+)
 from klarpdf.model.foreign_annots import ForeignAnnot, ForeignDeletion, ForeignMove
 from klarpdf.model.form_fields import NewField
 from klarpdf.model.page_edits import (
@@ -158,7 +163,8 @@ _WATERMARK_Z = 5.4
 # rendering a real PDF, so re-rasterising it on every repaint made an edit cost ~98ms *per
 # transparent signature* (M69.12) — linear in how many were in view, which is what made dragging
 # anything else lag once a few were placed. Bounded, so a document full of distinct marks costs
-# memory like a document full of distinct marks and not more.
+# memory like a document full of distinct marks and not more. A picture does not depend on
+# where its mark sits, so moving a mark keeps it (M188).
 _MARK_PIXMAP_CACHE = 48
 
 # Preview raster resolution for a content mark, in pixels per page point. 2× keeps a stamp crisp at
@@ -800,7 +806,9 @@ class AnnotationOverlay:
         not be built: a stamp is never worth crashing the view over, and the mark stays in the model
         and still bakes at save.
         """
-        key = (annot, round(scene_rect.width()))
+        # Without its position (M188): a moved mark keeps the picture it had, and is placed by
+        # the caller from its own rect.
+        key = (placed_at_origin(annot), round(scene_rect.width()))
         hit = self._mark_pixmaps.get(key)
         if hit is not None:
             self._mark_pixmaps.move_to_end(key)      # LRU: keep what is actually on screen

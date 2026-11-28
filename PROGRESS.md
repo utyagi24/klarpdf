@@ -304,12 +304,7 @@ removing its background. The design, the measurements, the owner's decisions and
 chosen are in [`docs/milestones/M188.md`](docs/milestones/M188.md), and are **not restated here**.
 One PR.
 
-- [ ] **M188** **Change the ink colour of a signature image** — the Signature / Image window gets
-  an Ink colour row: Original, Black, Blue and Other…. The strokes keep their light and dark parts
-  in the new colour, and the colour is remembered for each image. *App, with a change to the
-  engine's image drawing that the bridge does not reach.*
-
-Done, each with its record in its own file: none yet.
+Done, each with its record in its own file: [M188](docs/milestones/M188.md).
 
 ## Roadmap — GUI feature tranche R1–R6 (planned; M45–M79)
 
@@ -474,6 +469,18 @@ the PR that fixes it. See `CLAUDE.md` §How we work for the split and why. Items
 were not migrated wholesale: each is listed because a decision is outstanding, which is what keeps
 it on this side of the line.
 
+- **Store a large signature photo smaller?** — not decided (2026-11-27, found while making
+  signatures quicker to move in M188). A signature image is saved at the photo's full size, with
+  its pixels unpacked. A 12-megapixel photo placed 200 points wide is stored at about 1,400 pixels
+  per inch. In a test with a made-up 3.4 MB JPEG photo with grainy paper, the saved file grew by
+  20 MB in the original colours, and by 0.5 MB with the background removed and the ink recoloured.
+  The full size also slows editing: with six such signatures on a page, each edit still takes
+  about 0.3 s after M188's fix. 164 ms of that copies the six pictures (48 MB each) into the
+  document the thumbnails are built from, and 104 ms draws the thumbnails
+  ([`docs/milestones/M188.md`](docs/milestones/M188.md) §Progress). Storing the image at the size
+  it is shown would cut both. **Open question:** may KlarPDF store a signature at less than the
+  photo's full size, and how many pixels per inch should it keep? It changes the saved file, and a
+  reader may want the full photo kept.
 - **Reopen OCR, for the app and the bridge?** — graduated to **M182–M185** (owner, 2026-11-24).
   The measurements are in [`docs/milestones/M182-M185.md`](docs/milestones/M182-M185.md).
 - **Tell clients that the bridge's tool list never changes?** — not decided (2026-11-17, found

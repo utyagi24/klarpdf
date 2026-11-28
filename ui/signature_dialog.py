@@ -14,6 +14,10 @@ cutoff runs backwards (lower removes more), and exposing it raw and unlabelled m
 removed *less* (§M69.13). The inversion lives at this edge so :class:`~model.content_marks.ImageStamp`
 keeps the plain threshold semantics the renderer wants.
 
+**Ink colour** (M188) redraws the ink in another colour while keeping the pen's light and dark: the
+darkest ink becomes the colour picked, fainter ink a lighter shade of it, and white stays white. So
+it works with the paper kept too, and the row is never greyed out.
+
 **Paths only, never pixels.** The recent list stores the file paths the user chose — KlarPDF keeps no
 copy of a signature image anywhere. Moving or deleting the file revokes it; that is the whole
 mechanism, and it is the same one Open Recent uses.
@@ -29,9 +33,11 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QColor, QImage, QPixmap
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
+    QColorDialog,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -41,11 +47,14 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QSlider,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from klarpdf.model.content_marks import ImageStamp, render_mark_document
+from klarpdf.model.tuples import Color
+from viewer.markup_style import swatch_icon
 
 if TYPE_CHECKING:  # named in annotations only
     from store.settings import SignatureSettings
@@ -64,6 +73,14 @@ _MIN_STRENGTH, _MAX_STRENGTH, _DEFAULT_STRENGTH = 1, 50, 15
 _DEFAULT_THRESHOLD = (100 - _DEFAULT_STRENGTH) / 100.0
 
 _PREVIEW = (320, 150)
+
+# The ink colours offered as one click (M188, owner); Other… opens the colour picker for the rest.
+# Blue is the app's Blue (`_STROKE_PRESETS` in viewer/markup_style.py), so a colour's name means one
+# colour in the app. A test checks the two match.
+_INK_CHOICES: tuple[tuple[str, Color], ...] = (
+    ("Black", (0.0, 0.0, 0.0)),
+    ("Blue", (0.13, 0.35, 0.85)),
+)
 
 
 def _strength_for(white_threshold: float) -> int:
@@ -125,6 +142,24 @@ class SignatureDialog(QDialog):
         self.strength.valueChanged.connect(self._refresh_preview)
         self.transparent.toggled.connect(self._refresh_preview)
 
+        # **Ink colour** (M188). One button of the row stays pressed: Original, a colour, or Other…
+        # with the colour picked on it. `_ink` is the truth and the buttons follow it, so a picker
+        # closed with Cancel puts the pressed button back where it was.
+        self._ink: Color | None = None
+        self.ink_label = QLabel("Ink colour")
+        self.ink_group = QButtonGroup(self)
+        self.ink_original = self._ink_button("Original", "Keep the image's own colours.")
+        self.ink_original.clicked.connect(lambda: self._set_ink(None))
+        self.ink_presets: dict[str, QToolButton] = {}
+        for name, color in _INK_CHOICES:
+            button = self._ink_button(name, f"Redraw the ink in {name.lower()}.")
+            button.setIcon(swatch_icon(color))
+            button.clicked.connect(lambda _checked=False, c=color: self._set_ink(c))
+            self.ink_presets[name] = button
+        self.ink_other = self._ink_button("Other…", "Choose any colour for the ink.")
+        self.ink_other.clicked.connect(self._pick_other_ink)
+        self._sync_ink_buttons()
+
         self.preview = QLabel("Choose an image to preview it here.")
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview.setMinimumSize(*_PREVIEW)
@@ -155,6 +190,12 @@ class SignatureDialog(QDialog):
         strength_row.addWidget(self.strength_label)
         strength_row.addWidget(self.strength, 1)
         layout.addLayout(strength_row)
+        ink_row = QHBoxLayout()
+        ink_row.addWidget(self.ink_label)
+        for ink_button in self.ink_group.buttons():
+            ink_row.addWidget(ink_button)
+        ink_row.addStretch(1)
+        layout.addLayout(ink_row)
         note = QLabel(_NOT_CRYPTO)
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -203,6 +244,8 @@ class SignatureDialog(QDialog):
         for widget in (self.transparent, self.strength):
             widget.blockSignals(False)
         self._sync_strength(on)
+        self._ink = remembered.get("ink_color")       # an entry from before M188 has none: Original
+        self._sync_ink_buttons()
 
     def path(self) -> str | None:
         return self._path
@@ -210,6 +253,44 @@ class SignatureDialog(QDialog):
     def _sync_strength(self, on: bool) -> None:
         self.strength.setEnabled(on)
         self.strength_label.setEnabled(on)
+
+    # ---- ink colour (M188) ------------------------------------------------------
+
+    def _ink_button(self, text: str, tip: str) -> QToolButton:
+        button = QToolButton()
+        button.setText(text)
+        button.setToolTip(tip)
+        button.setCheckable(True)
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.ink_group.addButton(button)
+        return button
+
+    def _set_ink(self, color: Color | None) -> None:
+        self._ink = color
+        self._sync_ink_buttons()
+        self._refresh_preview()
+
+    def _pick_other_ink(self) -> None:
+        """Other…: the colour picker, starting from the ink on screen. Cancel changes nothing."""
+        start = self._ink or (0.0, 0.0, 0.0)
+        chosen = QColorDialog.getColor(QColor.fromRgbF(*start), self, "Ink colour")
+        if chosen.isValid():
+            self._set_ink((chosen.redF(), chosen.greenF(), chosen.blueF()))
+        else:
+            self._sync_ink_buttons()      # the click pressed Other…; put the pressed button back
+
+    def _sync_ink_buttons(self) -> None:
+        """Press the button that shows ``_ink``. A colour that is not one of the choices shows on
+        Other…, which keeps its dot until another colour is picked there."""
+        if self._ink is None:
+            self.ink_original.setChecked(True)
+            return
+        for name, color in _INK_CHOICES:
+            if self._ink == color:
+                self.ink_presets[name].setChecked(True)
+                return
+        self.ink_other.setIcon(swatch_icon(self._ink))
+        self.ink_other.setChecked(True)
 
     def _white_threshold(self) -> float:
         """The slider's "how much to remove" turned back into the renderer's luminance cutoff."""
@@ -256,4 +337,5 @@ class SignatureDialog(QDialog):
             image_path=self._path or "",
             white_to_alpha=self.transparent.isChecked(),
             white_threshold=self._white_threshold(),
+            ink_color=self._ink,
         )

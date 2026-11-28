@@ -35,10 +35,13 @@ descriptor is frozen + hashable so it can ride a ``PageRef`` and snapshot for un
 
 from __future__ import annotations
 
+import hashlib
 import math
-from dataclasses import dataclass
+import threading
+from collections import OrderedDict
+from dataclasses import dataclass, replace
 from functools import lru_cache
-from typing import TYPE_CHECKING, TypedDict, TypeGuard
+from typing import TYPE_CHECKING, TypedDict, TypeGuard, TypeVar
 
 import pymupdf as fitz
 
@@ -113,6 +116,10 @@ class ImageStamp:
     blank out whatever it is placed over. ``white_threshold`` is the luminance (0..1) at or above
     which a pixel becomes fully transparent, with a short ramp below it so antialiased strokes keep
     a soft edge instead of turning into jagged bitmap.
+
+    ``ink_color`` redraws the image in one colour, keeping the pen's light and dark (M188): the
+    darkest ink becomes exactly this colour and white stays white. ``None`` keeps the image's own
+    colours.
     """
 
     rect: tuple[float, float, float, float]
@@ -122,6 +129,7 @@ class ImageStamp:
     under: bool = False
     white_to_alpha: bool = False
     white_threshold: float = 0.85
+    ink_color: Color | None = None
 
     def bounding_rect(self) -> tuple[float, float, float, float]:
         return self.rect
@@ -363,8 +371,6 @@ def size_for_page(mark: Stamp, page_width: float, page_height: float) -> float:
     Iterative because :func:`natural_size` is affine, not linear, in the font size (the padding is a
     constant); each pass overshoots slightly and converges in two or three.
     """
-    from dataclasses import replace
-
     size = mark.fontsize
     if not size:
         return size
@@ -421,6 +427,35 @@ def _with_opacity(pix: fitz.Pixmap, opacity: float) -> fitz.Pixmap:
     return pix
 
 
+def _grey_channel(pix: fitz.Pixmap) -> bytes:
+    """``pix``'s grey, one byte per pixel: 0 is black and 255 is white.
+
+    MuPDF's own greyscale conversion computes it in C. ``Pixmap(csGRAY, pix)`` *keeps* the source's
+    alpha channel, so an already-transparent PNG yields 2 bytes per pixel, not 1. The first channel
+    is taken explicitly (a C-level strided slice): reading ``gray.samples`` whole would misalign the
+    grey against the pixels.
+    """
+    gray = fitz.Pixmap(fitz.csGRAY, pix)
+    try:
+        return gray.samples[0:: gray.n]
+    finally:
+        del gray
+
+
+def _white_key_table(threshold: float) -> bytes:
+    """The 256-entry table that turns a pixel's grey into the alpha "make white background
+    transparent" gives it: 0 at or above ``threshold``, 255 well below it, and a short ramp between
+    so antialiased stroke edges stay soft."""
+    cutoff = max(1, min(255, int(threshold * 255)))
+    ramp = max(1, int(0.15 * 255))                       # soft edge below the cutoff
+    return bytes(
+        0 if value >= cutoff
+        else 255 if value <= cutoff - ramp
+        else int(255 * (cutoff - value) / ramp)
+        for value in range(256)
+    )
+
+
 def _drop_white(pix: fitz.Pixmap, threshold: float) -> fitz.Pixmap:
     """``pix`` with light pixels made transparent — the "phone photo of a signature" fix (M63).
 
@@ -433,22 +468,7 @@ def _drop_white(pix: fitz.Pixmap, threshold: float) -> fitz.Pixmap:
     stroke edges soft rather than jagged. Any alpha the image already carries is **intersected**, not
     replaced, so a transparent PNG never gains opaque pixels here.
     """
-    cutoff = max(1, min(255, int(threshold * 255)))
-    ramp = max(1, int(0.15 * 255))                       # soft edge below the cutoff
-    table = bytes(
-        0 if value >= cutoff
-        else 255 if value <= cutoff - ramp
-        else int(255 * (cutoff - value) / ramp)
-        for value in range(256)
-    )
-    gray = fitz.Pixmap(fitz.csGRAY, pix)                 # luminance per pixel, computed in C
-    try:
-        # `Pixmap(csGRAY, pix)` *keeps* the source's alpha channel, so an already-transparent PNG
-        # yields 2 bytes per pixel, not 1. Take the first channel explicitly (a C-level strided
-        # slice) — reading `gray.samples` whole would misalign the mask against the pixels.
-        keyed = gray.samples[0:: gray.n].translate(table)
-    finally:
-        del gray
+    keyed = _grey_channel(pix).translate(_white_key_table(threshold))
     if not pix.alpha:
         pix = fitz.Pixmap(pix, 1)
         pix.set_alpha(keyed, premultiply=0)
@@ -462,6 +482,115 @@ def _drop_white(pix: fitz.Pixmap, threshold: float) -> fitz.Pixmap:
     return pix
 
 
+# Alpha → "is this pixel left out when finding the darkest ink?" as a grey to `max` against: 255
+# leaves the pixel out, 0 keeps its own grey. The first keeps only pixels shown in full; the second,
+# the fallback, keeps every pixel that shows at all.
+_LEAVE_OUT_UNLESS_SHOWN_IN_FULL = bytes(0 if value == 255 else 255 for value in range(256))
+_LEAVE_OUT_IF_HIDDEN = bytes(255 if value == 0 else 0 for value in range(256))
+
+
+def _darkest_shown(grey: bytes, own_alpha: bytes | None) -> int:
+    """The darkest grey among the pixels that show in full, or, when none does, among the pixels that
+    show at all. 255 when nothing darker than white shows.
+
+    The image's own transparency decides what shows. Background removal needs no look: it hides
+    lighter pixels first, so whenever any pixel shows, the darkest one shows too. The pixels that
+    show only in part are left out at first because a transparent PNG's colours come back from
+    PyMuPDF multiplied by their alpha: the soft edge of a grey stroke reads darker than the stroke,
+    and would hold back the stretch in :func:`_recolor`.
+    """
+    if own_alpha is None:
+        return min(grey, default=255)
+    for leave_out in (_LEAVE_OUT_UNLESS_SHOWN_IN_FULL, _LEAVE_OUT_IF_HIDDEN):
+        # `map` with the builtin `max` runs inside CPython, as in `_drop_white`. Only an image with
+        # its own transparency pays for it.
+        darkest = min(map(max, grey, own_alpha.translate(leave_out)), default=255)
+        if darkest < 255:
+            return darkest
+    return 255
+
+
+def _ink_table(channel: float, darkest: int) -> bytes:
+    """The 256-entry table that turns a grey into one channel (red, green or blue) of the ink.
+
+    ``darkest`` and anything darker give exactly ``channel``; white gives white; the greys between
+    are spread evenly. So the darkest ink in the image becomes the colour picked, even when a phone
+    photo's darkest ink is only dark grey.
+    """
+    ink = round(channel * 255)
+    span = max(255 - darkest, 1)
+    return bytes(
+        round(ink + (255 - ink) * min(max((value - darkest) / span, 0.0), 1.0))
+        for value in range(256)
+    )
+
+
+def _recolor(pix: fitz.Pixmap, ink: Color, threshold: float | None) -> fitz.Pixmap:
+    """``pix`` redrawn in ``ink``, keeping the pen's light and dark (M188, "same pen, new ink").
+
+    The image is made grey first. A colour-by-colour mapping, such as PyMuPDF's ``tint_with``, maps
+    red, green and blue separately, so blue ink recoloured to black stays blue. Each grey then
+    becomes ``ink`` mixed with white (:func:`_ink_table`).
+
+    ``threshold`` is the background removal's, or ``None`` to keep the paper. Its mask is made from
+    the **original** grey, never from the recoloured image: a pale ink colour such as yellow would
+    otherwise be taken for paper and removed. The image's own transparency is kept and intersected,
+    as in :func:`_drop_white`.
+
+    The alpha is set with ``premultiply=1``: MuPDF reads an image's colours as already multiplied by
+    their alpha, so colours left unmultiplied draw a soft edge in the wrong colour (half-see-through
+    blue drew as teal). Every step runs in C, so a 12-megapixel photo recolours in well under a
+    second.
+    """
+    grey = _grey_channel(pix)
+    own_alpha = _alpha_channel(pix) if pix.alpha else None
+    darkest = _darkest_shown(grey, own_alpha)
+    if darkest >= 255:            # nothing darker than white shows: there is no ink to recolour
+        return pix if threshold is None else _drop_white(pix, threshold)
+    alpha = own_alpha
+    if threshold is not None:
+        keyed = grey.translate(_white_key_table(threshold))
+        alpha = keyed if own_alpha is None else bytes(map(min, own_alpha, keyed))
+    samples = bytearray(len(grey) * 3)
+    for offset, channel in enumerate(ink):
+        samples[offset::3] = grey.translate(_ink_table(channel, darkest))
+    recolored = fitz.Pixmap(fitz.csRGB, pix.width, pix.height, samples, 0)
+    if alpha is None:
+        return recolored
+    recolored = fitz.Pixmap(recolored, 1)
+    recolored.set_alpha(alpha, premultiply=1)
+    return recolored
+
+
+_C = TypeVar("_C", bound=Stamp | ImageStamp)
+
+
+def placed_at_origin(mark: _C) -> _C:
+    """``mark`` with its box moved to the page's top-left corner: a key to its artwork (M188).
+
+    The artwork does not depend on where the mark sits, so a moved mark can use the artwork it
+    already had. The size is rounded to a millionth of a point. A move adds the same distance to
+    both edges, and rounding the two sums changes the width in its last digit in about a third of
+    drags.
+    """
+    width, height = art_size(mark)
+    return replace(mark, rect=(0.0, 0.0, round(width, 6), round(height, 6)))
+
+
+# The artwork of the image marks drawn lately, as PDF bytes (M188). Every edit rebuilds the page
+# thumbnails from the whole edited document, and the page view redraws a mark that moved. Each of
+# those used to draw every signature from its file again: 0.3 s for each arrow-key step on a
+# 12-megapixel photo, and 0.75 s with its background removed and its ink recoloured.
+#
+# The key holds the file's contents, not its path, so a file changed on disk is drawn anew.
+_KEPT_ART: OrderedDict[tuple[bytes, ImageStamp], bytes] = OrderedDict()
+# Room for the artwork of four 12-megapixel photos with their background removed (48 MB each).
+# The artwork used longest ago goes first, and artwork bigger than this is not kept.
+_KEPT_ART_BYTES = 200_000_000
+# The bridge runs its tools on threads. It draws no images today, because no tool makes one.
+_KEPT_ART_LOCK = threading.Lock()
+
+
 def render_mark_document(mark: ContentMark) -> fitz.Document:
     """A throwaway one-page PDF holding ``mark``'s artwork at its unrotated :func:`art_size`.
 
@@ -470,36 +599,79 @@ def render_mark_document(mark: ContentMark) -> fitz.Document:
     viewer's live placement preview renders exactly this, so what is dragged around on screen is the
     same artwork that bakes at save. The caller owns the document and must close it.
     """
+    if isinstance(mark, ImageStamp):
+        return _image_art(mark)
     width, height = art_size(mark)
     doc = fitz.open()
     page = doc.new_page(width=width, height=height)
-    box = fitz.Rect(0, 0, width, height)
     try:
-        if isinstance(mark, ImageStamp):
-            _draw_image(page, box, mark)
-        else:
-            _draw_text(page, box, mark)
+        _draw_text(page, fitz.Rect(0, 0, width, height), mark)
     except Exception:
         doc.close()
         raise
     return doc
 
 
-def _draw_image(page: fitz.Page, box: fitz.Rect, mark: ImageStamp) -> None:
-    """Draw an :class:`ImageStamp`'s file into ``box``, honouring its own alpha and ``opacity``.
+def _image_art(mark: ImageStamp) -> fitz.Document:
+    """:func:`render_mark_document` for an image, drawn once for each file, size and setting.
+
+    The file is read on every call, so a file changed on disk is drawn anew. Reading a 3.4 MB photo
+    and taking its fingerprint takes about 1 ms. Drawing it takes 270–620 ms.
 
     A missing or unreadable file draws **nothing** rather than raising: the path is the user's (it
     can move between placing the signature and saving), and losing the image must not cost them the
     save. The mark stays in the model, so re-pointing it and saving again works.
     """
+    width, height = art_size(mark)
     try:
-        pix = fitz.Pixmap(mark.image_path)
+        with open(mark.image_path, "rb") as file:
+            data = file.read()
+    except Exception:  # noqa: BLE001 — a file that will not read draws nothing, and the save goes on
+        doc = fitz.open()
+        doc.new_page(width=width, height=height)
+        return doc
+    key = (hashlib.sha256(data).digest(), placed_at_origin(mark))
+    with _KEPT_ART_LOCK:
+        art = _KEPT_ART.get(key)
+        if art is not None:
+            _KEPT_ART.move_to_end(key)
+    if art is None:
+        doc = fitz.open()
+        try:
+            page = doc.new_page(width=width, height=height)
+            _draw_image(page, fitz.Rect(0, 0, width, height), mark, data)
+            art = doc.tobytes()
+        finally:
+            doc.close()
+        _keep_art(key, art)
+    return fitz.open(stream=art, filetype="pdf")
+
+
+def _keep_art(key: tuple[bytes, ImageStamp], art: bytes) -> None:
+    """Keep ``art`` under ``key``, and let the oldest artwork go until all of it fits the room."""
+    if len(art) > _KEPT_ART_BYTES:
+        return
+    with _KEPT_ART_LOCK:
+        _KEPT_ART[key] = art
+        held = sum(len(kept) for kept in _KEPT_ART.values())
+        while held > _KEPT_ART_BYTES:
+            _old_key, old = _KEPT_ART.popitem(last=False)
+            held -= len(old)
+
+
+def _draw_image(page: fitz.Page, box: fitz.Rect, mark: ImageStamp, data: bytes) -> None:
+    """Draw ``data``, the bytes of an :class:`ImageStamp`'s file, into ``box``, honouring its own
+    alpha and ``opacity``. Bytes that are not an image draw **nothing**."""
+    try:
+        pix = fitz.Pixmap(data)
     except Exception:  # noqa: BLE001 — an image that will not load draws nothing, and the save goes on
         return
     try:
         if pix.colorspace is not None and pix.colorspace.n > 3:   # CMYK → RGB for insert_image
             pix = fitz.Pixmap(fitz.csRGB, pix)
-        if mark.white_to_alpha:
+        if mark.ink_color is not None:
+            pix = _recolor(pix, mark.ink_color, mark.white_threshold if mark.white_to_alpha else None)
+        elif mark.white_to_alpha:
             pix = _drop_white(pix, mark.white_threshold)
         page.insert_image(box, pixmap=_with_opacity(pix, mark.opacity), keep_proportion=True)
     finally:

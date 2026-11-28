@@ -1803,7 +1803,8 @@ class MainWindow(QMainWindow):
         stamp = dialog.image_stamp()
         self._settings.add_recent_signature(path,
                                             white_to_alpha=stamp.white_to_alpha,
-                                            white_threshold=stamp.white_threshold)
+                                            white_threshold=stamp.white_threshold,
+                                            ink_color=stamp.ink_color)
         self._rebuild_signature_menu()
         self._arm_content_mark(stamp)
 

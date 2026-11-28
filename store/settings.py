@@ -22,6 +22,7 @@ from typing import Any, TypedDict
 
 from PySide6.QtCore import QStandardPaths
 
+from klarpdf.model.tuples import Color
 from klarpdf.util.paths import normalize_path
 
 _STATE_FILENAME = "view_state.json"
@@ -30,10 +31,26 @@ _MAX_RECENT = 10  # cap the File ▸ Open Recent list
 
 
 class SignatureSettings(TypedDict):
-    """How a signature image was last placed (M63.1): the :class:`ImageStamp` keywords it takes."""
+    """How a signature image was last placed (M63.1): the :class:`ImageStamp` keywords it takes.
+
+    The keys are the field names, because the Recent Signatures / Images menu passes this to
+    :class:`ImageStamp` as it is. ``ink_color`` is ``None`` for the image's own colours (M188).
+    """
 
     white_to_alpha: bool
     white_threshold: float
+    ink_color: Color | None
+
+
+def _ink_color_from(value: object) -> Color | None:
+    """A remembered ink colour read back from the settings file, or ``None`` (the image's own
+    colours) for an entry from before M188 or a value that is not three numbers from 0 to 1."""
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        return None
+    if not all(isinstance(c, (int, float)) and not isinstance(c, bool) and 0.0 <= c <= 1.0
+               for c in value):
+        return None
+    return (float(value[0]), float(value[1]), float(value[2]))
 
 
 def _config_dir() -> Path:
@@ -144,7 +161,8 @@ class Settings:
     _MAX_SIGNATURES = 6
 
     def add_recent_signature(self, path: str, white_to_alpha: bool | None = None,
-                             white_threshold: float | None = None) -> None:
+                             white_threshold: float | None = None,
+                             ink_color: Color | None = None) -> None:
         """Record ``path`` as the most recently used signature / stamp image.
 
         Given the transparency settings, they are remembered **for that image** (M63.1): how much
@@ -153,6 +171,10 @@ class Settings:
         places with no dialog at all, has no other way to know. Stored beside the list, not in it,
         so the list stays exactly what it says it is: paths, never pixels. The keys are paths the
         list already holds, so this adds no information about the user's files.
+
+        ``ink_color`` is stored with them (M188). It is only stored when the transparency settings
+        are given, because only the dialog gives them, and the dialog always says the colour:
+        ``None`` there means the image's own colours, not "unknown".
         """
         key = normalize_path(path)
         current = list(self.get_pref(self._SIGNATURE_KEY, []) or [])
@@ -162,16 +184,19 @@ class Settings:
         tuned = dict(self.get_pref(self._SIGNATURE_SETTINGS_KEY, {}) or {})
         if white_to_alpha is not None and white_threshold is not None:
             tuned[key] = {"white_to_alpha": bool(white_to_alpha),
-                          "white_threshold": float(white_threshold)}
+                          "white_threshold": float(white_threshold),
+                          "ink_color": None if ink_color is None else list(ink_color)}
         self._prune_signature_settings(updated, tuned)
 
     def signature_settings(self, path: str) -> SignatureSettings | None:
-        """The transparency settings ``path`` was last placed with, or ``None`` if it has none."""
+        """The transparency settings and ink colour ``path`` was last placed with, or ``None`` if
+        it has none."""
         entry = (self.get_pref(self._SIGNATURE_SETTINGS_KEY, {}) or {}).get(normalize_path(path))
         if not isinstance(entry, dict) or not isinstance(entry.get("white_threshold"), (int, float)):
             return None
         return {"white_to_alpha": bool(entry.get("white_to_alpha", False)),
-                "white_threshold": float(entry["white_threshold"])}
+                "white_threshold": float(entry["white_threshold"]),
+                "ink_color": _ink_color_from(entry.get("ink_color"))}
 
     def recent_signatures(self) -> list[str]:
         """Recent signature paths, most-recent-first, with vanished files pruned."""
