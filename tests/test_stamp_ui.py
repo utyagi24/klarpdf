@@ -1073,19 +1073,35 @@ def test_a_repainted_mark_is_not_rasterised_twice(win, tmp_path):
     assert calls == [], "the mark was re-rendered despite nothing about it changing"
 
 
-def test_a_moved_mark_is_not_served_its_old_image(win, tmp_path):
-    """The cache is keyed on the descriptor, which is frozen — so a moved mark is a different key
-    and cannot collide with the stale image of its previous self. No explicit invalidation needed."""
+def test_a_moved_mark_keeps_its_picture_and_shows_at_its_new_place(win, tmp_path):
+    """A mark's picture does not depend on where the mark sits, so a move uses the picture it had
+    (M188). Drawing it again held up every move of a large photo. Only where it shows changes."""
+    from PySide6.QtWidgets import QGraphicsPixmapItem
+
+    import viewer.annotations as va
+
     path = _sig_path(tmp_path)
-    first = ImageStamp(rect=(40, 60, 240, 150), image_path=path)
-    win.vdoc.add_annotation(0, first)
+    win.vdoc.add_annotation(0, ImageStamp(rect=(40, 60, 240, 150), image_path=path))
     overlay = win.view.annotations
     overlay.repaint()
     keys_before = set(overlay._mark_pixmaps)
     win.vdoc.set_annotations(0, ())
-    win.vdoc.add_annotation(0, ImageStamp(rect=(300, 400, 500, 490), image_path=path))
-    overlay.repaint()
-    assert set(overlay._mark_pixmaps) - keys_before, "the moved mark reused the old cache entry"
+    moved = ImageStamp(rect=(300, 400, 500, 490), image_path=path)
+    win.vdoc.add_annotation(0, moved)
+    calls = []
+    real = va.render_mark_document
+    va.render_mark_document = lambda m: (calls.append(m), real(m))[1]
+    try:
+        overlay.repaint()
+    finally:
+        va.render_mark_document = real
+    assert calls == [], "the moved mark was drawn again"
+    assert set(overlay._mark_pixmaps) == keys_before
+    shown = [item for item in overlay._items if isinstance(item, QGraphicsPixmapItem)]
+    expected = win.view.scene_rect_for_box(0, moved.rect)
+    seen = shown[0].sceneBoundingRect()
+    assert abs(seen.left() - expected.left()) < 1 and abs(seen.top() - expected.top()) < 1
+    assert abs(seen.width() - expected.width()) < 1 and abs(seen.height() - expected.height()) < 1
 
 
 def test_the_mark_cache_is_bounded(win, tmp_path):
@@ -1094,9 +1110,8 @@ def test_the_mark_cache_is_bounded(win, tmp_path):
 
     path = _sig_path(tmp_path)
     overlay = win.view.annotations
-    for index in range(_MARK_PIXMAP_CACHE + 12):
+    for index in range(_MARK_PIXMAP_CACHE + 12):     # each a different size: a different picture
         win.vdoc.set_annotations(0, ())
-        win.vdoc.add_annotation(0, ImageStamp(rect=(10 + index, 20, 210 + index, 110),
-                                              image_path=path))
+        win.vdoc.add_annotation(0, ImageStamp(rect=(10, 20, 210 + index, 110), image_path=path))
         overlay.repaint()
-    assert len(overlay._mark_pixmaps) <= _MARK_PIXMAP_CACHE
+    assert len(overlay._mark_pixmaps) == _MARK_PIXMAP_CACHE

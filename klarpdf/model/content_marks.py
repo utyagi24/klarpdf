@@ -35,10 +35,13 @@ descriptor is frozen + hashable so it can ride a ``PageRef`` and snapshot for un
 
 from __future__ import annotations
 
+import hashlib
 import math
-from dataclasses import dataclass
+import threading
+from collections import OrderedDict
+from dataclasses import dataclass, replace
 from functools import lru_cache
-from typing import TYPE_CHECKING, TypedDict, TypeGuard
+from typing import TYPE_CHECKING, TypedDict, TypeGuard, TypeVar
 
 import pymupdf as fitz
 
@@ -368,8 +371,6 @@ def size_for_page(mark: Stamp, page_width: float, page_height: float) -> float:
     Iterative because :func:`natural_size` is affine, not linear, in the font size (the padding is a
     constant); each pass overshoots slightly and converges in two or three.
     """
-    from dataclasses import replace
-
     size = mark.fontsize
     if not size:
         return size
@@ -561,6 +562,35 @@ def _recolor(pix: fitz.Pixmap, ink: Color, threshold: float | None) -> fitz.Pixm
     return recolored
 
 
+_C = TypeVar("_C", bound=Stamp | ImageStamp)
+
+
+def placed_at_origin(mark: _C) -> _C:
+    """``mark`` with its box moved to the page's top-left corner: a key to its artwork (M188).
+
+    The artwork does not depend on where the mark sits, so a moved mark can use the artwork it
+    already had. The size is rounded to a millionth of a point. A move adds the same distance to
+    both edges, and rounding the two sums changes the width in its last digit in about a third of
+    drags.
+    """
+    width, height = art_size(mark)
+    return replace(mark, rect=(0.0, 0.0, round(width, 6), round(height, 6)))
+
+
+# The artwork of the image marks drawn lately, as PDF bytes (M188). Every edit rebuilds the page
+# thumbnails from the whole edited document, and the page view redraws a mark that moved. Each of
+# those used to draw every signature from its file again: 0.3 s for each arrow-key step on a
+# 12-megapixel photo, and 0.75 s with its background removed and its ink recoloured.
+#
+# The key holds the file's contents, not its path, so a file changed on disk is drawn anew.
+_KEPT_ART: OrderedDict[tuple[bytes, ImageStamp], bytes] = OrderedDict()
+# Room for the artwork of four 12-megapixel photos with their background removed (48 MB each).
+# The artwork used longest ago goes first, and artwork bigger than this is not kept.
+_KEPT_ART_BYTES = 200_000_000
+# The bridge runs its tools on threads. It draws no images today, because no tool makes one.
+_KEPT_ART_LOCK = threading.Lock()
+
+
 def render_mark_document(mark: ContentMark) -> fitz.Document:
     """A throwaway one-page PDF holding ``mark``'s artwork at its unrotated :func:`art_size`.
 
@@ -569,30 +599,71 @@ def render_mark_document(mark: ContentMark) -> fitz.Document:
     viewer's live placement preview renders exactly this, so what is dragged around on screen is the
     same artwork that bakes at save. The caller owns the document and must close it.
     """
+    if isinstance(mark, ImageStamp):
+        return _image_art(mark)
     width, height = art_size(mark)
     doc = fitz.open()
     page = doc.new_page(width=width, height=height)
-    box = fitz.Rect(0, 0, width, height)
     try:
-        if isinstance(mark, ImageStamp):
-            _draw_image(page, box, mark)
-        else:
-            _draw_text(page, box, mark)
+        _draw_text(page, fitz.Rect(0, 0, width, height), mark)
     except Exception:
         doc.close()
         raise
     return doc
 
 
-def _draw_image(page: fitz.Page, box: fitz.Rect, mark: ImageStamp) -> None:
-    """Draw an :class:`ImageStamp`'s file into ``box``, honouring its own alpha and ``opacity``.
+def _image_art(mark: ImageStamp) -> fitz.Document:
+    """:func:`render_mark_document` for an image, drawn once for each file, size and setting.
+
+    The file is read on every call, so a file changed on disk is drawn anew. Reading a 3.4 MB photo
+    and taking its fingerprint takes about 1 ms. Drawing it takes 270–620 ms.
 
     A missing or unreadable file draws **nothing** rather than raising: the path is the user's (it
     can move between placing the signature and saving), and losing the image must not cost them the
     save. The mark stays in the model, so re-pointing it and saving again works.
     """
+    width, height = art_size(mark)
     try:
-        pix = fitz.Pixmap(mark.image_path)
+        with open(mark.image_path, "rb") as file:
+            data = file.read()
+    except Exception:  # noqa: BLE001 — a file that will not read draws nothing, and the save goes on
+        doc = fitz.open()
+        doc.new_page(width=width, height=height)
+        return doc
+    key = (hashlib.sha256(data).digest(), placed_at_origin(mark))
+    with _KEPT_ART_LOCK:
+        art = _KEPT_ART.get(key)
+        if art is not None:
+            _KEPT_ART.move_to_end(key)
+    if art is None:
+        doc = fitz.open()
+        try:
+            page = doc.new_page(width=width, height=height)
+            _draw_image(page, fitz.Rect(0, 0, width, height), mark, data)
+            art = doc.tobytes()
+        finally:
+            doc.close()
+        _keep_art(key, art)
+    return fitz.open(stream=art, filetype="pdf")
+
+
+def _keep_art(key: tuple[bytes, ImageStamp], art: bytes) -> None:
+    """Keep ``art`` under ``key``, and let the oldest artwork go until all of it fits the room."""
+    if len(art) > _KEPT_ART_BYTES:
+        return
+    with _KEPT_ART_LOCK:
+        _KEPT_ART[key] = art
+        held = sum(len(kept) for kept in _KEPT_ART.values())
+        while held > _KEPT_ART_BYTES:
+            _old_key, old = _KEPT_ART.popitem(last=False)
+            held -= len(old)
+
+
+def _draw_image(page: fitz.Page, box: fitz.Rect, mark: ImageStamp, data: bytes) -> None:
+    """Draw ``data``, the bytes of an :class:`ImageStamp`'s file, into ``box``, honouring its own
+    alpha and ``opacity``. Bytes that are not an image draw **nothing**."""
+    try:
+        pix = fitz.Pixmap(data)
     except Exception:  # noqa: BLE001 — an image that will not load draws nothing, and the save goes on
         return
     try:

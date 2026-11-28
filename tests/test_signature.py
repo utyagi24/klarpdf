@@ -20,6 +20,7 @@ import pytest
 from PySide6.QtCore import Qt
 
 from app import PdfApp
+from klarpdf.model import content_marks
 from klarpdf.model.content_marks import ImageStamp, apply_content_marks, render_mark_document
 from klarpdf.model.edit_engine import PyMuPDFEngine
 from klarpdf.model.virtual_document import VirtualDocument
@@ -62,6 +63,15 @@ def alpha_sig(tmp_path) -> str:
     pix.save(path)
     doc.close()
     return path
+
+
+@pytest.fixture
+def fresh_art():
+    """No artwork kept from an earlier test (M188), so a test that counts or times drawing sees
+    its own. Emptied afterwards too, so a large test image does not stay in memory."""
+    content_marks._KEPT_ART.clear()
+    yield content_marks._KEPT_ART
+    content_marks._KEPT_ART.clear()
 
 
 def _alpha_at(mark: ImageStamp, x: int, y: int) -> int:
@@ -182,7 +192,7 @@ def test_a_baked_signature_is_content_not_an_annotation(photo_sig, tmp_path):
         vdoc.close()
 
 
-def test_a_huge_image_keys_without_stalling(tmp_path):
+def test_a_huge_image_keys_without_stalling(tmp_path, fresh_art):
     """The keying runs at C speed (greyscale conversion + one `bytes.translate`), because a
     multi-megapixel phone photo is a realistic input and a Python per-pixel loop would freeze the UI.
     A ~4 MP image must key in well under a second."""
@@ -656,7 +666,7 @@ def test_an_image_with_no_ink_draws_as_it_is(tmp_path):
     assert _seen(blank, 2, background=(0, 0, 0), white_to_alpha=True, ink_color=BLUE) == [BLACK, BLACK]
 
 
-def test_a_huge_image_recolours_without_stalling(tmp_path):
+def test_a_huge_image_recolours_without_stalling(tmp_path, fresh_art):
     """The twin of `test_a_huge_image_keys_without_stalling`, with the colour on: every step runs in
     C, so a ~4 MP image recolours, background removed, in the same time limit."""
     import time
@@ -842,3 +852,136 @@ def test_placing_from_the_window_remembers_its_colour(win, photo_sig, monkeypatc
     win._add_image_stamp()
     assert _draw_armed_stamp(win).ink_color == BLUE
     assert win._settings.signature_settings(photo_sig)["ink_color"] == BLUE
+
+
+# ---- moving a signature does not draw its image again (M188) ----------------------------------
+
+
+def _count_drawing(monkeypatch) -> list[ImageStamp]:
+    """Record each time an image is drawn from its file's bytes."""
+    drawn: list[ImageStamp] = []
+    real = content_marks._draw_image
+
+    def counted(page, box, mark, data):
+        drawn.append(mark)
+        real(page, box, mark, data)
+
+    monkeypatch.setattr(content_marks, "_draw_image", counted)
+    return drawn
+
+
+def test_moving_a_signature_does_not_draw_its_image_again(win, photo_sig, monkeypatch, fresh_art):
+    """Each arrow-key step and each drag drew the image from its file twice: once for the page view
+    and once for the page thumbnails. On a 12-megapixel photo with its background removed and a
+    new ink colour, that held up every step for 0.75 s."""
+    drawn = _count_drawing(monkeypatch)
+    mark = ImageStamp((100, 300, 300, 380), photo_sig, white_to_alpha=True, ink_color=BLUE)
+    win._add_annotation(0, mark)
+    assert drawn == [mark]
+    drawn.clear()
+    overlay = win.view.annotations
+    overlay.select_object(0, mark)
+    assert overlay.nudge_selection(1.0, 0.0)
+    assert overlay.begin_move(_scene(win, 200, 340))
+    overlay.update_move(_scene(win, 237, 391))
+    overlay.finish_move()
+    moved = [a for a in win.vdoc.page_annotations(0) if isinstance(a, ImageStamp)][0]
+    assert moved.rect[0] > 130, "the drag did not move the signature"
+    assert drawn == []
+
+
+def test_dragging_and_pasting_several_signatures_draws_no_image_again(win, photo_sig, monkeypatch,
+                                                                    fresh_art):
+    """The owner's hand check: several signatures selected, dragged with the mouse, copied and
+    pasted. Every signature on the page used to be drawn from its file twice at each step."""
+    drawn = _count_drawing(monkeypatch)
+    for left in (60, 260):
+        win._add_annotation(0, ImageStamp((left, 300, left + 150, 360), photo_sig, ink_color=BLUE))
+    overlay = win.view.annotations
+    signatures = [(0, a) for a in win.vdoc.page_annotations(0) if isinstance(a, ImageStamp)]
+    drawn.clear()
+    overlay._set_selection(signatures)
+    assert overlay.begin_move(_scene(win, 135, 330))
+    overlay.update_move(_scene(win, 158.3, 371.7))
+    overlay.finish_move()
+    assert win._copy_object()
+    win._paste_object()
+    placed = [a for a in win.vdoc.page_annotations(0) if isinstance(a, ImageStamp)]
+    assert len(placed) == 4
+    assert drawn == []
+
+def test_a_width_changed_by_rounding_keeps_its_artwork(photo_sig, monkeypatch, fresh_art):
+    """A move adds the same distance to both edges. Rounding the two sums can change the width in
+    its last digit, as it does here, and the artwork is still the same."""
+    from klarpdf.model.page_edits import translate_mark
+
+    mark = ImageStamp((100.1, 300.0, 300.3, 380.0), photo_sig, ink_color=BLUE)
+    moved = translate_mark(mark, 37.45, 0.0)
+    assert moved.rect[2] - moved.rect[0] != mark.rect[2] - mark.rect[0]
+    render_mark_document(mark).close()
+    drawn = _count_drawing(monkeypatch)
+    page = fitz.open().new_page()
+    apply_content_marks(page, (moved,))
+    assert drawn == []
+
+
+def test_a_signature_drawn_from_kept_artwork_looks_the_same(tmp_path, monkeypatch, fresh_art):
+    path = _squares(tmp_path, "ink.png", [BALLPOINT, (120, 120, 120), PAPER])
+    drawn = _count_drawing(monkeypatch)
+    first = _seen(path, 3, white_to_alpha=True, ink_color=BLUE)
+    again = _seen(path, 3, white_to_alpha=True, ink_color=BLUE)
+    assert len(drawn) == 1
+    assert again == first
+    assert first[0] == BLUE_PIXEL
+
+
+def test_each_setting_gets_its_own_artwork(tmp_path, fresh_art):
+    """One file, drawn in turn with different settings: no setting is given another's artwork."""
+    path = _squares(tmp_path, "ink.png", [BALLPOINT, PAPER])
+    assert _seen(path, 2, ink_color=BLUE)[0] == BLUE_PIXEL
+    assert _seen(path, 2, ink_color=BLACK)[0] == BLACK
+    assert _seen(path, 2)[0] == BALLPOINT
+    assert _seen(path, 2, background=(1, 0, 0), white_to_alpha=True)[1] == (255, 0, 0)
+
+
+def test_a_resized_signature_is_drawn_at_its_new_size(photo_sig, fresh_art):
+    render_mark_document(ImageStamp((0, 0, 200, 80), photo_sig)).close()
+    art = render_mark_document(ImageStamp((0, 0, 100, 300), photo_sig))
+    try:
+        assert tuple(art[0].rect) == (0, 0, 100, 300)
+    finally:
+        art.close()
+
+
+def test_an_image_file_changed_on_disk_is_drawn_anew(tmp_path, fresh_art):
+    """The artwork is kept by what the file holds, not by its name."""
+    path = _squares(tmp_path, "ink.png", [BALLPOINT, PAPER])
+    assert _seen(path, 2)[0] == BALLPOINT
+    _squares(tmp_path, "ink.png", [(200, 30, 30), PAPER])
+    assert _seen(path, 2)[0] == (200, 30, 30)
+
+
+def test_kept_artwork_stays_within_its_room(tmp_path, monkeypatch, fresh_art):
+    """The artwork used longest ago goes first."""
+    paths = [_squares(tmp_path, f"ink{n}.png", [(30, 51, 150 + n), PAPER]) for n in range(3)]
+    for path in paths:
+        render_mark_document(ImageStamp((0, 0, 20, 10), path)).close()
+    room = sum(len(art) for art in fresh_art.values())
+    one = room // 3
+    fresh_art.clear()
+    monkeypatch.setattr(content_marks, "_KEPT_ART_BYTES", 2 * one + one // 2)
+    for path in paths:
+        render_mark_document(ImageStamp((0, 0, 20, 10), path)).close()
+    assert sum(len(art) for art in fresh_art.values()) <= content_marks._KEPT_ART_BYTES
+    assert [key[1].image_path for key in fresh_art] == paths[1:]
+
+
+def test_artwork_bigger_than_the_room_is_drawn_but_not_kept(tmp_path, monkeypatch, fresh_art):
+    """And it does not push out the artwork that fits."""
+    small = _squares(tmp_path, "small.png", [BALLPOINT, PAPER])
+    big = _squares(tmp_path, "big.png", [BALLPOINT, PAPER] * 20)
+    render_mark_document(ImageStamp((0, 0, 20, 10), small)).close()
+    monkeypatch.setattr(content_marks, "_KEPT_ART_BYTES",
+                        sum(len(art) for art in fresh_art.values()) + 1)
+    assert _seen(big, 40, ink_color=BLUE)[0] == BLUE_PIXEL
+    assert [key[1].image_path for key in fresh_art] == [small]
